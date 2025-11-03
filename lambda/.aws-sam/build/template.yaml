@@ -1,0 +1,225 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: "\u5BB6\u8A08\u7C3F\u30A2\u30D7\u30EA \u30D0\u30C3\u30AF\u30A8\u30F3\u30C9"
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: nodejs18.x
+    Environment:
+      Variables:
+        USERS_TABLE:
+          Ref: UsersTable
+        TRANSACTIONS_TABLE:
+          Ref: TransactionsTable
+        CATEGORIES_TABLE:
+          Ref: CategoriesTable
+        BANK_ACCOUNTS_TABLE:
+          Ref: BankAccountsTable
+  Api:
+    Cors:
+      AllowMethods: '''GET,POST,PUT,DELETE,OPTIONS'''
+      AllowHeaders: '''Content-Type,Authorization'''
+      AllowOrigin: '''*'''
+Resources:
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: household-users
+      AttributeDefinitions:
+      - AttributeName: userId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: userId
+        KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+  TransactionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: household-transactions
+      AttributeDefinitions:
+      - AttributeName: userId
+        AttributeType: S
+      - AttributeName: transactionId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: userId
+        KeyType: HASH
+      - AttributeName: transactionId
+        KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+  CategoriesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: household-categories
+      AttributeDefinitions:
+      - AttributeName: userId
+        AttributeType: S
+      - AttributeName: categoryId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: userId
+        KeyType: HASH
+      - AttributeName: categoryId
+        KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+  BankAccountsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: household-bank-accounts
+      AttributeDefinitions:
+      - AttributeName: userId
+        AttributeType: S
+      - AttributeName: accountId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: userId
+        KeyType: HASH
+      - AttributeName: accountId
+        KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+  UserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: UserFunction
+      Handler: index.handler
+      Events:
+        GetInitialBalance:
+          Type: Api
+          Properties:
+            Path: /user/initial-balance
+            Method: get
+        SaveInitialBalance:
+          Type: Api
+          Properties:
+            Path: /user/initial-balance
+            Method: post
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: UsersTable
+    Metadata:
+      SamResourceId: UserFunction
+  TransactionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: TransactionFunction
+      Handler: index.handler
+      Events:
+        GetTransactions:
+          Type: Api
+          Properties:
+            Path: /transactions
+            Method: get
+        CreateTransaction:
+          Type: Api
+          Properties:
+            Path: /transactions
+            Method: post
+        DeleteTransaction:
+          Type: Api
+          Properties:
+            Path: /transactions/{transactionId}
+            Method: delete
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: TransactionsTable
+    Metadata:
+      SamResourceId: TransactionFunction
+  BalanceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: BalanceFunction
+      Handler: index.handler
+      Events:
+        GetBalance:
+          Type: Api
+          Properties:
+            Path: /balance
+            Method: get
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: UsersTable
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: TransactionsTable
+    Metadata:
+      SamResourceId: BalanceFunction
+  CategoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: CategoryFunction
+      Handler: index.handler
+      Events:
+        GetCategories:
+          Type: Api
+          Properties:
+            Path: /categories
+            Method: get
+        CreateCategory:
+          Type: Api
+          Properties:
+            Path: /categories
+            Method: post
+        UpdateCategory:
+          Type: Api
+          Properties:
+            Path: /categories/{categoryId}
+            Method: put
+        DeleteCategory:
+          Type: Api
+          Properties:
+            Path: /categories/{categoryId}
+            Method: delete
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: CategoriesTable
+    Metadata:
+      SamResourceId: CategoryFunction
+  BankAccountFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: BankAccountFunction
+      Handler: index.handler
+      Events:
+        GetBankAccounts:
+          Type: Api
+          Properties:
+            Path: /bank-accounts
+            Method: get
+        CreateBankAccount:
+          Type: Api
+          Properties:
+            Path: /bank-accounts
+            Method: post
+        UpdateBankAccount:
+          Type: Api
+          Properties:
+            Path: /bank-accounts/{accountId}
+            Method: put
+        DeleteBankAccount:
+          Type: Api
+          Properties:
+            Path: /bank-accounts/{accountId}
+            Method: delete
+        BankTransfer:
+          Type: Api
+          Properties:
+            Path: /bank-accounts/{accountId}/transfer
+            Method: post
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: BankAccountsTable
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: TransactionsTable
+    Metadata:
+      SamResourceId: BankAccountFunction
+Outputs:
+  ApiGatewayEndpoint:
+    Description: API Gateway endpoint URL
+    Value:
+      Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/

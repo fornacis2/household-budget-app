@@ -1,0 +1,216 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 家計簿アプリ バックエンド
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: nodejs18.x
+    Environment:
+      Variables:
+        USERS_TABLE: !Ref UsersTable
+        TRANSACTIONS_TABLE: !Ref TransactionsTable
+        CATEGORIES_TABLE: !Ref CategoriesTable
+        BANK_ACCOUNTS_TABLE: !Ref BankAccountsTable
+  Api:
+    Cors:
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      AllowHeaders: "'Content-Type,Authorization'"
+      AllowOrigin: "'*'"
+
+Resources:
+  # DynamoDB Tables
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: household-users
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  TransactionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: household-transactions
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: transactionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: transactionId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  CategoriesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: household-categories
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: categoryId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: categoryId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  BankAccountsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: household-bank-accounts
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: accountId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: accountId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  # Lambda Functions
+  UserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/user/
+      Handler: index.handler
+      Events:
+        GetInitialBalance:
+          Type: Api
+          Properties:
+            Path: /user/initial-balance
+            Method: get
+        SaveInitialBalance:
+          Type: Api
+          Properties:
+            Path: /user/initial-balance
+            Method: post
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+
+  TransactionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/transaction/
+      Handler: index.handler
+      Events:
+        GetTransactions:
+          Type: Api
+          Properties:
+            Path: /transactions
+            Method: get
+        CreateTransaction:
+          Type: Api
+          Properties:
+            Path: /transactions
+            Method: post
+        DeleteTransaction:
+          Type: Api
+          Properties:
+            Path: /transactions/{transactionId}
+            Method: delete
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TransactionsTable
+
+  BalanceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/balance/
+      Handler: index.handler
+      Events:
+        GetBalance:
+          Type: Api
+          Properties:
+            Path: /balance
+            Method: get
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref TransactionsTable
+
+  CategoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/category/
+      Handler: index.handler
+      Events:
+        GetCategories:
+          Type: Api
+          Properties:
+            Path: /categories
+            Method: get
+        CreateCategory:
+          Type: Api
+          Properties:
+            Path: /categories
+            Method: post
+        UpdateCategory:
+          Type: Api
+          Properties:
+            Path: /categories/{categoryId}
+            Method: put
+        DeleteCategory:
+          Type: Api
+          Properties:
+            Path: /categories/{categoryId}
+            Method: delete
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CategoriesTable
+
+  BankAccountFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/bank-account/
+      Handler: index.handler
+      Events:
+        GetBankAccounts:
+          Type: Api
+          Properties:
+            Path: /bank-accounts
+            Method: get
+        CreateBankAccount:
+          Type: Api
+          Properties:
+            Path: /bank-accounts
+            Method: post
+        UpdateBankAccount:
+          Type: Api
+          Properties:
+            Path: /bank-accounts/{accountId}
+            Method: put
+        DeleteBankAccount:
+          Type: Api
+          Properties:
+            Path: /bank-accounts/{accountId}
+            Method: delete
+        BankTransfer:
+          Type: Api
+          Properties:
+            Path: /bank-accounts/{accountId}/transfer
+            Method: post
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BankAccountsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TransactionsTable
+
+Outputs:
+  ApiGatewayEndpoint:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"

@@ -1,0 +1,16 @@
+{
+  "name": "household-budget-lambda",
+  "version": "1.0.0",
+  "description": "家計簿アプリ Lambda Functions",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "sam deploy --guided"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1490.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "aws-sam-cli": "^1.100.0"
+  }
+}
