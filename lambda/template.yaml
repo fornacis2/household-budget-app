@@ -12,6 +12,7 @@ Globals:
         TRANSACTIONS_TABLE: !Ref TransactionsTable
         CATEGORIES_TABLE: !Ref CategoriesTable
         BANK_ACCOUNTS_TABLE: !Ref BankAccountsTable
+        CREDIT_CARDS_TABLE: !Ref CreditCardsTable
   Api:
     Cors:
       AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
@@ -77,6 +78,22 @@ Resources:
         - AttributeName: userId
           KeyType: HASH
         - AttributeName: accountId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  CreditCardsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: household-credit-cards
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: cardId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: cardId
           KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
 
@@ -209,6 +226,36 @@ Resources:
             TableName: !Ref BankAccountsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref TransactionsTable
+
+  CreditCardFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/credit-card/
+      Handler: index.handler
+      Events:
+        GetCreditCards:
+          Type: Api
+          Properties:
+            Path: /credit-cards
+            Method: get
+        CreateCreditCard:
+          Type: Api
+          Properties:
+            Path: /credit-cards
+            Method: post
+        UpdateCreditCard:
+          Type: Api
+          Properties:
+            Path: /credit-cards/{cardId}
+            Method: put
+        DeleteCreditCard:
+          Type: Api
+          Properties:
+            Path: /credit-cards/{cardId}
+            Method: delete
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CreditCardsTable
 
 Outputs:
   ApiGatewayEndpoint:

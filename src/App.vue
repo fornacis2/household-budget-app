@@ -9,6 +9,7 @@
         <router-link to="/categories">カテゴリ管理</router-link>
         <router-link to="/bank-accounts">銀行口座</router-link>
         <router-link to="/bank-transfer">預金・引出</router-link>
+        <router-link to="/credit-cards">クレジットカード</router-link>
         <router-link to="/report">レポート</router-link>
       </div>
     </nav>

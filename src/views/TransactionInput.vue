@@ -100,6 +100,13 @@
           >
             {{ account.bankName }}
           </option>
+          <option
+            v-for="card in creditCards"
+            :key="card.cardId"
+            :value="card.cardId"
+          >
+            {{ card.cardName }} (クレジットカード)
+          </option>
         </select>
       </div>
 
@@ -143,12 +150,14 @@ export default {
         expense: []
       },
       bankAccounts: [],
+      creditCards: [],
       selectedCategory: null
     }
   },
   mounted() {
     this.loadCategories()
     this.loadBankAccounts()
+    this.loadCreditCards()
   },
   computed: {
     availableCategories() {
@@ -180,6 +189,14 @@ export default {
         console.error('銀行口座の取得に失敗:', error)
       }
     },
+    async loadCreditCards() {
+      try {
+        const response = await ApiService.getCreditCards()
+        this.creditCards = response.creditCards || []
+      } catch (error) {
+        console.error('クレジットカードの取得に失敗:', error)
+      }
+    },
     onCategoryChange() {
       this.selectedCategory = this.availableCategories.find(cat => cat.name === this.category)
       this.subcategory = ''
@@ -202,7 +219,7 @@ export default {
         subcategory: this.subcategory,
         memo: this.memo,
         date: this.date,
-        accountType: this.selectedAccountId === 'cash' ? 'cash' : 'bank',
+        accountType: this.getAccountType(),
         accountId: this.selectedAccountId === 'cash' ? null : this.selectedAccountId
       }
 
@@ -243,6 +260,25 @@ export default {
           this.message = ''
         }, 3000)
       }
+    },
+    getAccountType() {
+      if (this.selectedAccountId === 'cash') {
+        return 'cash'
+      }
+      
+      // 銀行口座かチェック
+      const isBankAccount = this.bankAccounts.some(account => account.accountId === this.selectedAccountId)
+      if (isBankAccount) {
+        return 'bank'
+      }
+      
+      // クレジットカードかチェック
+      const isCreditCard = this.creditCards.some(card => card.cardId === this.selectedAccountId)
+      if (isCreditCard) {
+        return 'credit'
+      }
+      
+      return 'cash'
     },
     resetForm() {
       this.amount = 0

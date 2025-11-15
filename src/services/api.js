@@ -132,6 +132,31 @@ class ApiService {
       body: transferData
     })
   }
+
+  // クレジットカード管理
+  async getCreditCards() {
+    return this.request('/credit-cards')
+  }
+
+  async addCreditCard(creditCard) {
+    return this.request('/credit-cards', {
+      method: 'POST',
+      body: creditCard
+    })
+  }
+
+  async updateCreditCard(cardId, creditCard) {
+    return this.request(`/credit-cards/${cardId}`, {
+      method: 'PUT',
+      body: creditCard
+    })
+  }
+
+  async deleteCreditCard(cardId) {
+    return this.request(`/credit-cards/${cardId}`, {
+      method: 'DELETE'
+    })
+  }
 }
 
 export default new ApiService()
