@@ -157,6 +157,27 @@ class ApiService {
       method: 'DELETE'
     })
   }
+
+  // 日次残高管理
+  async getDailyBalances(date) {
+    const params = date ? `?date=${date}` : ''
+    return this.request(`/daily-balances${params}`)
+  }
+
+  async getAccountDailyBalances(accountId, startDate, endDate) {
+    let params = ''
+    if (startDate && endDate) {
+      params = `?startDate=${startDate}&endDate=${endDate}`
+    }
+    return this.request(`/daily-balances/${accountId}${params}`)
+  }
+
+  async recalculateDailyBalances(options = {}) {
+    return this.request('/daily-balances/recalculate', {
+      method: 'POST',
+      body: options
+    })
+  }
 }
 
 export default new ApiService()

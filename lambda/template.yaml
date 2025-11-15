@@ -257,6 +257,40 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref CreditCardsTable
 
+  DailyBalanceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/daily-balance/
+      Handler: index.handler
+      Events:
+        GetAllDailyBalances:
+          Type: Api
+          Properties:
+            Path: /daily-balances
+            Method: get
+        GetAccountDailyBalances:
+          Type: Api
+          Properties:
+            Path: /daily-balances/{accountId}
+            Method: get
+        RecalculateDailyBalances:
+          Type: Api
+          Properties:
+            Path: /daily-balances/recalculate
+            Method: post
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TransactionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BankAccountsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CreditCardsTable
+      Environment:
+        Variables:
+          TABLE_NAME: household-budget
+
 Outputs:
   ApiGatewayEndpoint:
     Description: "API Gateway endpoint URL"

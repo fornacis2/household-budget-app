@@ -8,6 +8,7 @@ import CategoryManagement from './views/CategoryManagement.vue'
 import BankAccountManagement from './views/BankAccountManagement.vue'
 import BankTransferInput from './views/BankTransferInput.vue'
 import CreditCardManagement from './views/CreditCardManagement.vue'
+import DailyBalanceManagement from './views/DailyBalanceManagement.vue'
 import ReportView from './views/ReportView.vue'
 
 const routes = [
@@ -19,6 +20,7 @@ const routes = [
   { path: '/bank-accounts', component: BankAccountManagement },
   { path: '/bank-transfer', component: BankTransferInput },
   { path: '/credit-cards', component: CreditCardManagement },
+  { path: '/daily-balances', component: DailyBalanceManagement },
   { path: '/report', component: ReportView }
 ]
 

@@ -1,0 +1,10 @@
+{
+  "name": "daily-balance-lambda",
+  "version": "1.0.0",
+  "description": "Daily balance management Lambda function",
+  "main": "index.js",
+  "dependencies": {
+    "aws-sdk": "^2.1000.0",
+    "uuid": "^9.0.0"
+  }
+}
