@@ -1,5 +1,7 @@
-node_modules/ 
-.env 
-dist/ 
-.DS_Store 
-*.log 
+node_modules/
+.env
+dist/
+.DS_Store
+*.log
+lambda/.aws-sam/
+lambda/response.json

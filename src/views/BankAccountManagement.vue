@@ -148,13 +148,13 @@ export default {
             bankName: this.formData.bankName,
             balance: this.formData.balance
           })
-          this.message = '口座を更新しました'
+          this.message = '口座を更新しました。日次残高管理画面で再計算を実行してください。'
         } else {
           await ApiService.createBankAccount({
             bankName: this.formData.bankName,
             initialBalance: this.formData.initialBalance
           })
-          this.message = '口座を追加しました'
+          this.message = '口座を追加しました。日次残高管理画面で再計算を実行してください。'
         }
 
         this.showForm = false

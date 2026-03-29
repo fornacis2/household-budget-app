@@ -1,7 +1,18 @@
 const AWS = require('aws-sdk');
 
 const dynamodb = new AWS.DynamoDB.DocumentClient();
-const TABLE_NAME = process.env.TABLE_NAME || 'household-budget';
+const USERS_TABLE = process.env.USERS_TABLE;
+const TRANSACTIONS_TABLE = process.env.TRANSACTIONS_TABLE;
+const BANK_ACCOUNTS_TABLE = process.env.BANK_ACCOUNTS_TABLE;
+const CREDIT_CARDS_TABLE = process.env.CREDIT_CARDS_TABLE;
+const DAILY_BALANCE_TABLE = process.env.DAILY_BALANCE_TABLE;
+
+const {
+  getLatestTransactionDate,
+  recalculateFromDate,
+  saveDailyBalance,
+  getExistingBalances
+} = require('../shared/dailyBalanceHelper');
 
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
@@ -59,7 +70,7 @@ async function getAccountDailyBalances(accountId, queryParams, headers) {
   }
 
   const params = {
-    TableName: TABLE_NAME,
+    TableName: DAILY_BALANCE_TABLE,
     FilterExpression: filterExpression,
     ExpressionAttributeNames: {
       '#date': 'date'
@@ -69,10 +80,7 @@ async function getAccountDailyBalances(accountId, queryParams, headers) {
 
   const result = await dynamodb.scan(params).promise();
   
-  // 日付順でソート
-  const balances = (result.Items || [])
-    .filter(item => item.type === 'daily-balance')
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  const balances = (result.Items || []).sort((a, b) => new Date(a.date) - new Date(b.date));
 
   return {
     statusCode: 200,
@@ -85,45 +93,71 @@ async function getAccountDailyBalances(accountId, queryParams, headers) {
 }
 
 async function getAllDailyBalances(queryParams, headers) {
-  const { date } = queryParams || {};
-  const targetDate = date || new Date().toISOString().split('T')[0];
+  const { date, startDate, endDate } = queryParams || {};
+  
+  let filterExpression;
+  const expressionAttributeValues = {};
+  const expressionAttributeNames = {
+    '#date': 'date'
+  };
+  
+  if (startDate && endDate) {
+    // 範囲指定での読み込み
+    filterExpression = '#date BETWEEN :startDate AND :endDate';
+    expressionAttributeValues[':startDate'] = startDate;
+    expressionAttributeValues[':endDate'] = endDate;
+  } else {
+    // 特定日の読み込み（既存の動作）
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    filterExpression = '#date = :date';
+    expressionAttributeValues[':date'] = targetDate;
+  }
 
   const params = {
-    TableName: TABLE_NAME,
-    FilterExpression: '#type = :type AND #date = :date',
-    ExpressionAttributeNames: {
-      '#type': 'type',
-      '#date': 'date'
-    },
-    ExpressionAttributeValues: {
-      ':type': 'daily-balance',
-      ':date': targetDate
-    }
+    TableName: DAILY_BALANCE_TABLE,
+    FilterExpression: filterExpression,
+    ExpressionAttributeNames: expressionAttributeNames,
+    ExpressionAttributeValues: expressionAttributeValues
   };
 
   const result = await dynamodb.scan(params).promise();
+  const balances = (result.Items || []).sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  return {
-    statusCode: 200,
-    headers,
-    body: JSON.stringify({
-      date: targetDate,
-      balances: result.Items || []
-    })
-  };
+  if (startDate && endDate) {
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        startDate,
+        endDate,
+        balances
+      })
+    };
+  } else {
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        date: targetDate,
+        balances
+      })
+    };
+  }
 }
 
 async function recalculateDailyBalances(event, headers) {
   const body = JSON.parse(event.body || '{}');
-  const { startDate, endDate, accountId } = body;
+  const { startDate, accountId } = body;
+
+  // endDate未指定の場合は最新取引日を自動取得
+  const endDate = body.endDate || await getLatestTransactionDate();
 
   console.log(`Recalculating daily balances from ${startDate} to ${endDate} for account: ${accountId || 'all'}`);
 
   try {
-    // 全口座情報を取得
     const accounts = await getAllAccounts();
     
-    // 対象口座をフィルタリング
     const targetAccounts = accountId ? 
       accounts.filter(acc => acc.accountId === accountId) : 
       accounts;
@@ -132,8 +166,8 @@ async function recalculateDailyBalances(event, headers) {
 
     for (const account of targetAccounts) {
       console.log(`Processing account: ${account.accountId}`);
-      const accountResult = await recalculateAccountBalances(account, startDate, endDate);
-      results.push(accountResult);
+      await recalculateFromDate(account, startDate);
+      results.push({ accountId: account.accountId, accountName: account.accountName });
     }
 
     return {
@@ -162,7 +196,6 @@ async function recalculateDailyBalances(event, headers) {
 async function getAllAccounts() {
   const accounts = [];
   
-  // 現金口座
   accounts.push({
     accountId: 'cash',
     accountType: 'cash',
@@ -170,7 +203,6 @@ async function getAllAccounts() {
     initialBalance: await getInitialCashBalance()
   });
 
-  // 銀行口座
   const bankAccounts = await getBankAccounts();
   for (const bank of bankAccounts) {
     accounts.push({
@@ -178,40 +210,25 @@ async function getAllAccounts() {
       accountType: 'bank',
       accountName: bank.bankName,
       originalId: bank.accountId,
-      initialBalance: 0 // 銀行口座は現在残高から逆算
+      initialBalance: bank.balance || 0  // 銀行口座の現在残高を初期残高として使用
     });
   }
 
-  // クレジットカード
-  const creditCards = await getCreditCards();
-  for (const card of creditCards) {
-    accounts.push({
-      accountId: `credit-${card.cardId}`,
-      accountType: 'credit',
-      accountName: card.cardName,
-      originalId: card.cardId,
-      initialBalance: 0 // クレカは利用残高
-    });
-  }
-
+  // クレジットカードは再計算対象から除外
   return accounts;
 }
 
 async function getInitialCashBalance() {
   try {
     const params = {
-      TableName: TABLE_NAME,
-      FilterExpression: '#type = :type',
-      ExpressionAttributeNames: {
-        '#type': 'type'
-      },
-      ExpressionAttributeValues: {
-        ':type': 'user'
+      TableName: USERS_TABLE,
+      Key: {
+        userId: 'default-user'
       }
     };
 
-    const result = await dynamodb.scan(params).promise();
-    return result.Items?.[0]?.initialBalance || 0;
+    const result = await dynamodb.get(params).promise();
+    return result.Item?.initialBalance || 0;
   } catch (error) {
     console.log('Initial cash balance not found, using 0');
     return 0;
@@ -220,162 +237,30 @@ async function getInitialCashBalance() {
 
 async function getBankAccounts() {
   const params = {
-    TableName: TABLE_NAME,
-    FilterExpression: '#type = :type',
-    ExpressionAttributeNames: {
-      '#type': 'type'
-    },
+    TableName: BANK_ACCOUNTS_TABLE,
+    KeyConditionExpression: 'userId = :userId',
     ExpressionAttributeValues: {
-      ':type': 'bank-account'
+      ':userId': 'default-user'
     }
   };
 
-  const result = await dynamodb.scan(params).promise();
+  const result = await dynamodb.query(params).promise();
   return result.Items || [];
 }
 
 async function getCreditCards() {
   const params = {
-    TableName: TABLE_NAME,
-    FilterExpression: '#type = :type',
-    ExpressionAttributeNames: {
-      '#type': 'type'
-    },
+    TableName: CREDIT_CARDS_TABLE,
+    KeyConditionExpression: 'userId = :userId',
     ExpressionAttributeValues: {
-      ':type': 'credit-card'
+      ':userId': 'default-user'
     }
   };
 
-  const result = await dynamodb.scan(params).promise();
+  const result = await dynamodb.query(params).promise();
   return result.Items || [];
 }
 
-async function recalculateAccountBalances(account, startDate, endDate) {
-  // 対象期間の取引を取得
-  const transactions = await getAccountTransactions(account, startDate, endDate);
-  
-  // 日付ごとにグループ化
-  const transactionsByDate = {};
-  transactions.forEach(tx => {
-    const date = tx.date;
-    if (!transactionsByDate[date]) {
-      transactionsByDate[date] = [];
-    }
-    transactionsByDate[date].push(tx);
-  });
-
-  // 開始残高を取得
-  let currentBalance = await getStartingBalance(account, startDate);
-  
-  const results = [];
-  const dates = Object.keys(transactionsByDate).sort();
-
-  for (const date of dates) {
-    const dayTransactions = transactionsByDate[date];
-    
-    // その日の取引を適用
-    for (const tx of dayTransactions) {
-      if (account.accountType === 'cash' || account.accountType === 'bank') {
-        currentBalance += tx.type === 'income' ? tx.amount : -tx.amount;
-      } else if (account.accountType === 'credit') {
-        // クレジットカードは支出のみ（利用残高として蓄積）
-        if (tx.type === 'expense') {
-          currentBalance += tx.amount;
-        }
-      }
-    }
-
-    // 日次残高を保存
-    await saveDailyBalance(account.accountId, date, currentBalance, dayTransactions.length);
-    
-    results.push({
-      date,
-      balance: currentBalance,
-      transactionCount: dayTransactions.length
-    });
-  }
-
-  return {
-    accountId: account.accountId,
-    accountName: account.accountName,
-    processedDays: results.length,
-    finalBalance: currentBalance
-  };
-}
-
-async function getAccountTransactions(account, startDate, endDate) {
-  let filterExpression = '#type = :type AND #date BETWEEN :startDate AND :endDate';
-  const expressionAttributeValues = {
-    ':type': 'transaction',
-    ':startDate': startDate,
-    ':endDate': endDate
-  };
-
-  // 口座タイプに応じてフィルタリング
-  if (account.accountType === 'cash') {
-    filterExpression += ' AND accountType = :accountType';
-    expressionAttributeValues[':accountType'] = 'cash';
-  } else if (account.accountType === 'bank') {
-    filterExpression += ' AND accountId = :accountId';
-    expressionAttributeValues[':accountId'] = account.originalId;
-  } else if (account.accountType === 'credit') {
-    filterExpression += ' AND accountId = :accountId';
-    expressionAttributeValues[':accountId'] = account.originalId;
-  }
-
-  const params = {
-    TableName: TABLE_NAME,
-    FilterExpression: filterExpression,
-    ExpressionAttributeNames: {
-      '#type': 'type',
-      '#date': 'date'
-    },
-    ExpressionAttributeValues: expressionAttributeValues
-  };
-
-  const result = await dynamodb.scan(params).promise();
-  return result.Items || [];
-}
-
-async function getStartingBalance(account, startDate) {
-  // 前日の残高を取得
-  const previousDate = new Date(startDate);
-  previousDate.setDate(previousDate.getDate() - 1);
-  const prevDateStr = previousDate.toISOString().split('T')[0];
-
-  try {
-    const params = {
-      TableName: TABLE_NAME,
-      Key: {
-        accountId: account.accountId,
-        date: prevDateStr,
-        type: 'daily-balance'
-      }
-    };
-
-    const result = await dynamodb.get(params).promise();
-    if (result.Item) {
-      return result.Item.balance;
-    }
-  } catch (error) {
-    console.log(`Previous balance not found for ${account.accountId}, using initial balance`);
-  }
-
-  return account.initialBalance;
-}
-
-async function saveDailyBalance(accountId, date, balance, transactionCount) {
-  const params = {
-    TableName: TABLE_NAME,
-    Item: {
-      accountId,
-      date,
-      type: 'daily-balance',
-      balance,
-      transactionCount,
-      updatedAt: new Date().toISOString()
-    }
-  };
-
-  await dynamodb.put(params).promise();
-}
+// ────────────────────────────────────────────
+// 口座情報取得
+// ────────────────────────────────────────────

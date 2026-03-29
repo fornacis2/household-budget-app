@@ -1,5 +1,5 @@
 {
-  "name": "category-function",
+  "name": "household-budget-app-functions",
   "version": "1.0.0",
   "dependencies": {
     "aws-sdk": "^2.1490.0",

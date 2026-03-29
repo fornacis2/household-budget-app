@@ -58,12 +58,12 @@ export default {
         await ApiService.saveInitialBalance(this.initialBalance)
         // ローカルストレージにもバックアップ保存
         localStorage.setItem('initialBalance', this.initialBalance.toString())
-        this.message = '初期残高を保存しました'
+        this.message = '初期残高を保存しました。日次残高管理画面で再計算を実行してください。'
       } catch (error) {
         console.error('初期残高の保存に失敗:', error)
         // フォールバック: ローカルストレージに保存
         localStorage.setItem('initialBalance', this.initialBalance.toString())
-        this.message = '初期残高を保存しました（ローカル）'
+        this.message = '初期残高を保存しました（ローカル）。日次残高管理画面で再計算を実行してください。'
       } finally {
         this.loading = false
         setTimeout(() => {

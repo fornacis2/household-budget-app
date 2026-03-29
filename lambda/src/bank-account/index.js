@@ -5,6 +5,12 @@ const dynamodb = new AWS.DynamoDB.DocumentClient()
 const BANK_ACCOUNTS_TABLE = process.env.BANK_ACCOUNTS_TABLE
 const TRANSACTIONS_TABLE = process.env.TRANSACTIONS_TABLE
 
+const {
+  updateDailyBalancesWithWithdrawal,
+  getOldestTransactionDate,
+  recalculateFromDate
+} = require('../shared/dailyBalanceHelper')
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -73,6 +79,17 @@ exports.handler = async (event) => {
           ':updatedAt': new Date().toISOString()
         }
       }).promise()
+
+      // 残高変更時は最古取引日から再計算
+      const bankAccountId = `bank-${accountId}`
+      const startDate = await getOldestTransactionDate(bankAccountId)
+      const account = {
+        accountId: bankAccountId,
+        accountType: 'bank',
+        originalId: accountId,
+        initialBalance: balance
+      }
+      await recalculateFromDate(account, startDate)
 
       return {
         statusCode: 200,
@@ -208,6 +225,9 @@ async function handleTransfer(event, userId, headers) {
     TableName: TRANSACTIONS_TABLE,
     Item: transaction
   }).promise()
+
+  // 日次残高テーブルを更新
+  await updateDailyBalancesWithWithdrawal(transaction, 'add')
 
   return {
     statusCode: 200,

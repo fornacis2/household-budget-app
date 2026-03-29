@@ -3,6 +3,11 @@ const dynamodb = new AWS.DynamoDB.DocumentClient()
 
 const USERS_TABLE = process.env.USERS_TABLE
 
+const {
+  getOldestTransactionDate,
+  recalculateFromDate
+} = require('../shared/dailyBalanceHelper')
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -56,6 +61,15 @@ exports.handler = async (event) => {
           updatedAt: new Date().toISOString()
         }
       }).promise()
+
+      // 最古取引日から現金の日次残高を再計算
+      const startDate = await getOldestTransactionDate('cash')
+      const account = {
+        accountId: 'cash',
+        accountType: 'cash',
+        initialBalance
+      }
+      await recalculateFromDate(account, startDate)
 
       return {
         statusCode: 200,

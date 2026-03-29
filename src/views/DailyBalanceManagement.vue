@@ -28,15 +28,6 @@
           />
         </div>
         <div class="form-group">
-          <label for="endDate">終了日:</label>
-          <input
-            id="endDate"
-            v-model="recalcEndDate"
-            type="date"
-            class="form-input"
-          />
-        </div>
-        <div class="form-group">
           <label for="accountFilter">対象口座:</label>
           <select
             id="accountFilter"
@@ -51,13 +42,6 @@
               :value="`bank-${account.accountId}`"
             >
               {{ account.bankName }}
-            </option>
-            <option
-              v-for="card in creditCards"
-              :key="card.cardId"
-              :value="`credit-${card.cardId}`"
-            >
-              {{ card.cardName }}
             </option>
           </select>
         </div>
@@ -123,7 +107,7 @@ export default {
   },
   computed: {
     canRecalculate() {
-      return this.recalcStartDate && this.recalcEndDate
+      return !!this.recalcStartDate
     }
   },
   mounted() {
@@ -176,8 +160,7 @@ export default {
         this.loading = true
         
         const options = {
-          startDate: this.recalcStartDate,
-          endDate: this.recalcEndDate
+          startDate: this.recalcStartDate
         }
         
         if (this.selectedAccountId) {

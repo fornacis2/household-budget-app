@@ -8,11 +8,15 @@
         <h3>収入カテゴリ</h3>
         <div class="category-list">
           <div
-            v-for="category in categories.income"
+            v-for="(category, index) in categories.income"
             :key="category.categoryId"
             class="category-item"
           >
             <div class="category-header">
+              <div class="sort-buttons">
+                <button @click="moveUp('income', index)" class="btn-sort" :disabled="index === 0">↑</button>
+                <button @click="moveDown('income', index)" class="btn-sort" :disabled="index === categories.income.length - 1">↓</button>
+              </div>
               <span class="category-name">{{ category.name }}</span>
               <div class="category-actions">
                 <button @click="editCategory(category)" class="btn-edit">編集</button>
@@ -30,7 +34,10 @@
             </div>
           </div>
         </div>
-        <button @click="showAddForm('income')" class="btn-add">+ 収入カテゴリを追加</button>
+        <div class="section-footer">
+          <button @click="showAddForm('income')" class="btn-add">+ 収入カテゴリを追加</button>
+          <button @click="updateSortOrder('income')" class="btn-update" :disabled="loading">順序を更新</button>
+        </div>
       </div>
 
       <!-- 支出カテゴリ -->
@@ -38,11 +45,15 @@
         <h3>支出カテゴリ</h3>
         <div class="category-list">
           <div
-            v-for="category in categories.expense"
+            v-for="(category, index) in categories.expense"
             :key="category.categoryId"
             class="category-item"
           >
             <div class="category-header">
+              <div class="sort-buttons">
+                <button @click="moveUp('expense', index)" class="btn-sort" :disabled="index === 0">↑</button>
+                <button @click="moveDown('expense', index)" class="btn-sort" :disabled="index === categories.expense.length - 1">↓</button>
+              </div>
               <span class="category-name">{{ category.name }}</span>
               <div class="category-actions">
                 <button @click="editCategory(category)" class="btn-edit">編集</button>
@@ -60,7 +71,10 @@
             </div>
           </div>
         </div>
-        <button @click="showAddForm('expense')" class="btn-add">+ 支出カテゴリを追加</button>
+        <div class="section-footer">
+          <button @click="showAddForm('expense')" class="btn-add">+ 支出カテゴリを追加</button>
+          <button @click="updateSortOrder('expense')" class="btn-update" :disabled="loading">順序を更新</button>
+        </div>
       </div>
     </div>
 
@@ -223,6 +237,45 @@ export default {
     cancelForm() {
       this.showForm = false
       this.editingCategory = null
+    },
+
+    moveUp(type, index) {
+      if (index === 0) return
+      const list = this.categories[type]
+      const tmp = list[index - 1]
+      list[index - 1] = list[index]
+      list[index] = tmp
+    },
+
+    moveDown(type, index) {
+      const list = this.categories[type]
+      if (index === list.length - 1) return
+      const tmp = list[index + 1]
+      list[index + 1] = list[index]
+      list[index] = tmp
+    },
+
+    async updateSortOrder(type) {
+      try {
+        this.loading = true
+        const list = this.categories[type]
+        await Promise.all(
+          list.map((category, index) =>
+            ApiService.updateCategory(category.categoryId, {
+              name: category.name,
+              subcategories: category.subcategories,
+              sortOrder: index + 1
+            })
+          )
+        )
+        this.message = '順序を更新しました'
+      } catch (error) {
+        console.error('順序の更新に失敗:', error)
+        this.message = '順序の更新に失敗しました'
+      } finally {
+        this.loading = false
+        setTimeout(() => { this.message = '' }, 3000)
+      }
     }
   }
 }
@@ -269,6 +322,32 @@ export default {
   margin-bottom: 0.5rem;
 }
 
+.sort-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-right: 0.5rem;
+}
+
+.btn-sort {
+  padding: 0.1rem 0.3rem;
+  border: 1px solid #bdc3c7;
+  border-radius: 3px;
+  background-color: #ecf0f1;
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.btn-sort:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.btn-sort:hover:not(:disabled) {
+  background-color: #bdc3c7;
+}
+
 .category-name {
   font-weight: bold;
   color: #2c3e50;
@@ -311,6 +390,12 @@ export default {
   font-size: 0.8rem;
 }
 
+.section-footer {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 .btn-add {
   background-color: #27ae60;
   color: white;
@@ -318,7 +403,22 @@ export default {
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  width: 100%;
+  flex: 1;
+}
+
+.btn-update {
+  background-color: #3498db;
+  color: white;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 1;
+}
+
+.btn-update:disabled {
+  background-color: #bdc3c7;
+  cursor: not-allowed;
 }
 
 .category-form-overlay {

@@ -11,7 +11,9 @@
         <router-link to="/bank-transfer">預金・引出</router-link>
         <router-link to="/credit-cards">クレジットカード</router-link>
         <router-link to="/daily-balances">日次残高</router-link>
-        <router-link to="/report">レポート</router-link>
+        <router-link to="/transactions">取引データ</router-link>
+        <router-link to="/reports/weekly">週別レポート</router-link>
+        <router-link to="/reports/yearly">年別レポート</router-link>
       </div>
     </nav>
     <main>
@@ -67,7 +69,6 @@ body {
 
 main {
   padding: 2rem;
-  max-width: 800px;
   margin: 0 auto;
 }
 </style>

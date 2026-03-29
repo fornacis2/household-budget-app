@@ -13,6 +13,7 @@ Globals:
         CATEGORIES_TABLE: !Ref CategoriesTable
         BANK_ACCOUNTS_TABLE: !Ref BankAccountsTable
         CREDIT_CARDS_TABLE: !Ref CreditCardsTable
+        DAILY_BALANCE_TABLE: !Ref DailyBalancesTable
   Api:
     Cors:
       AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
@@ -97,12 +98,28 @@ Resources:
           KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
 
+  DailyBalancesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: household-daily-balances
+      AttributeDefinitions:
+        - AttributeName: accountId
+          AttributeType: S
+        - AttributeName: date
+          AttributeType: S
+      KeySchema:
+        - AttributeName: accountId
+          KeyType: HASH
+        - AttributeName: date
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
   # Lambda Functions
   UserFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/user/
-      Handler: index.handler
+      CodeUri: src/
+      Handler: user/index.handler
       Events:
         GetInitialBalance:
           Type: Api
@@ -117,12 +134,20 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TransactionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BankAccountsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CreditCardsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DailyBalancesTable
 
   TransactionFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/transaction/
-      Handler: index.handler
+      CodeUri: src/
+      Handler: transaction/index.handler
       Events:
         GetTransactions:
           Type: Api
@@ -134,6 +159,16 @@ Resources:
           Properties:
             Path: /transactions
             Method: post
+        GetTransaction:
+          Type: Api
+          Properties:
+            Path: /transactions/{transactionId}
+            Method: get
+        UpdateTransaction:
+          Type: Api
+          Properties:
+            Path: /transactions/{transactionId}
+            Method: put
         DeleteTransaction:
           Type: Api
           Properties:
@@ -142,12 +177,20 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TransactionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DailyBalancesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BankAccountsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CreditCardsTable
 
   BalanceFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/balance/
-      Handler: index.handler
+      CodeUri: src/
+      Handler: balance/index.handler
       Events:
         GetBalance:
           Type: Api
@@ -163,8 +206,8 @@ Resources:
   CategoryFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/category/
-      Handler: index.handler
+      CodeUri: src/
+      Handler: category/index.handler
       Events:
         GetCategories:
           Type: Api
@@ -193,8 +236,8 @@ Resources:
   BankAccountFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/bank-account/
-      Handler: index.handler
+      CodeUri: src/
+      Handler: bank-account/index.handler
       Events:
         GetBankAccounts:
           Type: Api
@@ -226,12 +269,18 @@ Resources:
             TableName: !Ref BankAccountsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref TransactionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CreditCardsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DailyBalancesTable
 
   CreditCardFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/credit-card/
-      Handler: index.handler
+      CodeUri: src/
+      Handler: credit-card/index.handler
       Events:
         GetCreditCards:
           Type: Api
@@ -260,8 +309,8 @@ Resources:
   DailyBalanceFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/daily-balance/
-      Handler: index.handler
+      CodeUri: src/
+      Handler: daily-balance/index.handler
       Events:
         GetAllDailyBalances:
           Type: Api
@@ -287,9 +336,8 @@ Resources:
             TableName: !Ref BankAccountsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref CreditCardsTable
-      Environment:
-        Variables:
-          TABLE_NAME: household-budget
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DailyBalancesTable
 
 Outputs:
   ApiGatewayEndpoint:

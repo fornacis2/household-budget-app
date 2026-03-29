@@ -2,7 +2,7 @@ const AWS = require('aws-sdk');
 const { v4: uuidv4 } = require('uuid');
 
 const dynamodb = new AWS.DynamoDB.DocumentClient();
-const TABLE_NAME = process.env.TABLE_NAME || 'household-budget';
+const TABLE_NAME = process.env.CREDIT_CARDS_TABLE || 'household-credit-cards';
 
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
@@ -47,18 +47,16 @@ exports.handler = async (event) => {
 };
 
 async function getCreditCards(headers) {
+  const userId = 'default-user';
   const params = {
     TableName: TABLE_NAME,
-    FilterExpression: '#type = :type',
-    ExpressionAttributeNames: {
-      '#type': 'type'
-    },
+    KeyConditionExpression: 'userId = :userId',
     ExpressionAttributeValues: {
-      ':type': 'credit-card'
+      ':userId': userId
     }
   };
 
-  const result = await dynamodb.scan(params).promise();
+  const result = await dynamodb.query(params).promise();
   
   return {
     statusCode: 200,
@@ -81,10 +79,11 @@ async function createCreditCard(event, headers) {
     };
   }
 
+  const userId = 'default-user';
   const cardId = uuidv4();
   const creditCard = {
+    userId,
     cardId,
-    type: 'credit-card',
     cardName,
     withdrawalAccountId,
     closingDay: parseInt(closingDay),
@@ -156,9 +155,10 @@ async function updateCreditCard(event, cardId, headers) {
   updateExpression.push('updatedAt = :updatedAt');
   expressionAttributeValues[':updatedAt'] = new Date().toISOString();
 
+  const userId = 'default-user';
   const params = {
     TableName: TABLE_NAME,
-    Key: { cardId, type: 'credit-card' },
+    Key: { userId, cardId },
     UpdateExpression: `SET ${updateExpression.join(', ')}`,
     ExpressionAttributeValues: expressionAttributeValues,
     ReturnValues: 'ALL_NEW'
@@ -189,9 +189,10 @@ async function deleteCreditCard(cardId, headers) {
     };
   }
 
+  const userId = 'default-user';
   const params = {
     TableName: TABLE_NAME,
-    Key: { cardId, type: 'credit-card' }
+    Key: { userId, cardId }
   };
 
   await dynamodb.delete(params).promise();

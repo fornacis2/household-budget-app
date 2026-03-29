@@ -61,6 +61,14 @@ exports.handler = async (event) => {
         categories = await createDefaultCategories(userId)
       }
 
+      // sortOrder でソート（ない場合は createdAt でフォールバック）
+      categories.sort((a, b) => {
+        const aOrder = a.sortOrder !== undefined ? a.sortOrder : Number.MAX_SAFE_INTEGER
+        const bOrder = b.sortOrder !== undefined ? b.sortOrder : Number.MAX_SAFE_INTEGER
+        if (aOrder !== bOrder) return aOrder - bOrder
+        return (a.createdAt || '').localeCompare(b.createdAt || '')
+      })
+
       // ツリー構造に変換
       const categoryTree = buildCategoryTree(categories)
 
@@ -78,13 +86,27 @@ exports.handler = async (event) => {
       const { type, name, parentId, subcategories } = JSON.parse(event.body)
       const categoryId = uuidv4()
 
+      // 同じ type の最大 sortOrder を取得して +1
+      const existingResult = await dynamodb.query({
+        TableName: CATEGORIES_TABLE,
+        KeyConditionExpression: 'userId = :userId',
+        FilterExpression: '#type = :type',
+        ExpressionAttributeNames: { '#type': 'type' },
+        ExpressionAttributeValues: { ':userId': userId, ':type': type }
+      }).promise()
+      const existingItems = existingResult.Items || []
+      const maxSortOrder = existingItems.reduce((max, item) => {
+        return item.sortOrder !== undefined ? Math.max(max, item.sortOrder) : max
+      }, 0)
+
       const category = {
         userId,
         categoryId,
-        type, // 'income' or 'expense'
+        type,
         name,
         parentId: parentId || null,
         subcategories: subcategories || [],
+        sortOrder: maxSortOrder + 1,
         createdAt: new Date().toISOString()
       }
 
@@ -106,20 +128,26 @@ exports.handler = async (event) => {
     if (httpMethod === 'PUT') {
       // カテゴリ更新
       const { categoryId } = pathParameters
-      const { name, subcategories } = JSON.parse(event.body)
+      const { name, subcategories, sortOrder } = JSON.parse(event.body)
+
+      const updateExpression = ['SET #name = :name', 'subcategories = :subcategories', 'updatedAt = :updatedAt']
+      const expressionAttributeValues = {
+        ':name': name,
+        ':subcategories': subcategories || [],
+        ':updatedAt': new Date().toISOString()
+      }
+
+      if (sortOrder !== undefined) {
+        updateExpression.push('sortOrder = :sortOrder')
+        expressionAttributeValues[':sortOrder'] = sortOrder
+      }
 
       await dynamodb.update({
         TableName: CATEGORIES_TABLE,
         Key: { userId, categoryId },
-        UpdateExpression: 'SET #name = :name, subcategories = :subcategories, updatedAt = :updatedAt',
-        ExpressionAttributeNames: {
-          '#name': 'name'
-        },
-        ExpressionAttributeValues: {
-          ':name': name,
-          ':subcategories': subcategories || [],
-          ':updatedAt': new Date().toISOString()
-        }
+        UpdateExpression: updateExpression.join(', '),
+        ExpressionAttributeNames: { '#name': 'name' },
+        ExpressionAttributeValues: expressionAttributeValues
       }).promise()
 
       return {
@@ -168,9 +196,11 @@ exports.handler = async (event) => {
 // デフォルトカテゴリを作成
 async function createDefaultCategories(userId) {
   const categories = []
-  
+  const sortOrderByType = { income: 0, expense: 0 }
+
   for (const defaultCat of DEFAULT_CATEGORIES) {
     const categoryId = uuidv4()
+    sortOrderByType[defaultCat.type] += 1
     const category = {
       userId,
       categoryId,
@@ -178,6 +208,7 @@ async function createDefaultCategories(userId) {
       name: defaultCat.name,
       parentId: null,
       subcategories: defaultCat.subcategories,
+      sortOrder: sortOrderByType[defaultCat.type],
       createdAt: new Date().toISOString()
     }
 

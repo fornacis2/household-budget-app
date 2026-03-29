@@ -138,7 +138,17 @@ export default {
       creditCards: [],
       bankAccounts: [],
       loading: false,
-      message: ''
+      message: '',
+      withdrawalMonthMap: {
+        'current': 0,
+        'next': 1,
+        'after_next': 2
+      },
+      withdrawalMonthText: {
+        0: '当月',
+        1: '翌月',
+        2: '翌々月'
+      }
     }
   },
   computed: {
@@ -193,7 +203,7 @@ export default {
           cardName: this.newCard.cardName,
           withdrawalAccountId: this.newCard.withdrawalAccountId,
           closingDay: parseInt(this.newCard.closingDay),
-          withdrawalMonth: this.newCard.withdrawalMonth,
+          withdrawalMonth: this.withdrawalMonthMap[this.newCard.withdrawalMonth],
           withdrawalDay: parseInt(this.newCard.withdrawalDay)
         })
         
@@ -242,12 +252,7 @@ export default {
     },
 
     getWithdrawalMonthText(withdrawalMonth) {
-      const monthMap = {
-        'current': '当月',
-        'next': '翌月',
-        'after_next': '翌々月'
-      }
-      return monthMap[withdrawalMonth] || '不明'
+      return this.withdrawalMonthText[withdrawalMonth] || '不明'
     },
 
     resetForm() {

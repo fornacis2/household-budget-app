@@ -48,22 +48,39 @@
             <div class="transaction-category">
               {{ transaction.category }}
               <span v-if="transaction.subcategory">/ {{ transaction.subcategory }}</span>
+              <span v-if="transaction.accountType === 'credit'" class="credit-indicator">(クレジット)</span>
             </div>
             <div class="transaction-memo" v-if="transaction.memo">
               {{ transaction.memo }}
             </div>
-            <div class="transaction-date">{{ formatDate(transaction.date) }}</div>
+            <div class="transaction-dates">
+              <div class="transaction-date">取引日: {{ formatDate(transaction.date) }}</div>
+              <div v-if="transaction.withdrawalDate && transaction.withdrawalDate !== transaction.date" class="withdrawal-date">
+                引落日: {{ formatDate(transaction.withdrawalDate) }}
+              </div>
+            </div>
           </div>
           <div class="transaction-amounts">
             <div class="transaction-amount" :class="transaction.type">
               取引額: {{ transaction.type === 'income' ? '+' : '-' }}¥{{ transaction.amount.toLocaleString() }}
             </div>
-            <div class="balance-after">
-              取引後残高: ¥{{ calculateBalanceAfter(transaction).toLocaleString() }}
+            <div class="balance-after" :class="{ 'balance-mismatch': getBalanceResult(transaction).mismatch }">
+              取引後残高: ¥{{ getBalanceResult(transaction).amount.toLocaleString() }}
+              <span v-if="getBalanceResult(transaction).mismatch" class="mismatch-indicator">※</span>
             </div>
           </div>
         </div>
       </div>
+    </div>
+    
+    <!-- 残高不一致の説明 -->
+    <div v-if="Object.keys(balanceMismatches).length > 0" class="mismatch-notice">
+      <h4>⚠️ 残高不一致のお知らせ</h4>
+      <p>赤字で※印が付いた残高は、計算値と日次残高テーブルの値が一致していません。</p>
+      <p>日次残高管理画面から残高の再計算を実行してください。</p>
+      <button @click="goToDailyBalanceManagement" class="btn-warning">
+        日次残高管理へ
+      </button>
     </div>
   </div>
 </template>
@@ -79,7 +96,11 @@ export default {
       initialBalance: 0,
       transactions: [],
       bankAccounts: [],
-      loading: false
+      creditCards: [],
+      loading: false,
+      balanceMismatches: {},
+      balanceCache: {},
+      dailyBalancesCache: []
     }
   },
   computed: {
@@ -122,21 +143,37 @@ export default {
         // 現金取引（accountTypeがないまたはcash）
         return this.transactions.filter(t => !t.accountType || t.accountType === 'cash')
       } else {
-        // 銀行口座取引
-        return this.transactions.filter(t => 
-          t.accountType === 'bank' && t.accountId === this.selectedAccount
-        )
+        // 銀行口座取引 + クレジットカード引落
+        return this.transactions.filter(t => {
+          // 銀行口座の直接取引
+          if (t.accountType === 'bank' && t.accountId === this.selectedAccount) {
+            return true
+          }
+          // クレジットカードの引落取引（引落口座がこの銀行口座）
+          if (t.accountType === 'credit' && t.type === 'expense') {
+            const creditCard = this.creditCards.find(card => card.cardId === t.accountId)
+            return creditCard && creditCard.withdrawalAccountId === this.selectedAccount
+          }
+          return false
+        })
       }
     },
     sortedTransactions() {
-      return [...this.filteredTransactions].sort((a, b) => 
-        new Date(b.createdAt || b.timestamp || b.date) - new Date(a.createdAt || a.timestamp || a.date)
-      )
+      return [...this.filteredTransactions].sort((a, b) => {
+        const dateA = new Date(a.date)
+        const dateB = new Date(b.date)
+        if (dateA.getTime() !== dateB.getTime()) {
+          return dateB - dateA
+        }
+        return new Date(b.createdAt || b.timestamp) - new Date(a.createdAt || a.timestamp)
+      })
     }
   },
-  mounted() {
-    this.loadData()
-    this.loadBankAccounts()
+  async mounted() {
+    await this.loadData()
+    await this.loadBankAccounts()
+    await this.loadCreditCards()
+    await this.preloadBalances()
   },
   methods: {
     async loadData() {
@@ -178,22 +215,140 @@ export default {
       }
     },
     
-    onAccountChange() {
-      // 口座変更時の処理（必要に応じて）
+    async loadCreditCards() {
+      try {
+        const response = await ApiService.getCreditCards()
+        this.creditCards = response.creditCards || []
+      } catch (error) {
+        console.error('クレジットカードの取得に失敗:', error)
+      }
+    },
+    
+    async onAccountChange() {
+      this.balanceMismatches = {}
+      this.balanceCache = {}
+      await this.preloadBalances()
     },
     formatDate(dateString) {
       const date = new Date(dateString)
       return date.toLocaleDateString('ja-JP')
     },
     
-    calculateBalanceAfter(transaction) {
+    async calculateBalanceAfter(transaction) {
+      const accountId = this.getAccountIdForDailyBalance()
+      const updateDate = this.getUpdateDate(transaction) // 引落日を使用
+      
+      try {
+        const previousDate = this.getPreviousDate(updateDate)
+        const previousDayBalance = await this.getDailyBalanceAsync(previousDate, accountId)
+        
+        const sameDayTransactions = this.getSameDayTransactions(updateDate)
+          .sort((a, b) => {
+            const aTime = new Date(a.createdAt || a.timestamp || `${this.getUpdateDate(a)}T00:00:00`)
+            const bTime = new Date(b.createdAt || b.timestamp || `${this.getUpdateDate(b)}T00:00:00`)
+            return aTime - bTime
+          })
+        
+        let calculatedBalance = previousDayBalance
+        
+        for (const tx of sameDayTransactions) {
+          const amount = this.getTransactionAmount(tx)
+          calculatedBalance += amount
+          
+          if ((tx.transactionId && tx.transactionId === transaction.transactionId) || 
+              (tx.id && tx.id === transaction.id)) {
+            
+            const isLastTransaction = this.isLastTransactionOfDay(transaction, sameDayTransactions)
+            
+            if (isLastTransaction) {
+              const dailyBalance = await this.getDailyBalanceAsync(updateDate, accountId)
+              
+              if (dailyBalance !== null && Math.abs(calculatedBalance - dailyBalance) > 0.01) {
+                this.setBalanceMismatch(updateDate, calculatedBalance, dailyBalance)
+                return { amount: dailyBalance, mismatch: true }
+              }
+            }
+            
+            return { amount: calculatedBalance, mismatch: false }
+          }
+        }
+        
+        return { amount: this.calculateBalanceAfterFallback(transaction), mismatch: false }
+      } catch (error) {
+        console.error('残高計算エラー:', error)
+        return { amount: this.calculateBalanceAfterFallback(transaction), mismatch: false }
+      }
+    },
+    
+
+    
+    getAccountIdForDailyBalance() {
       if (this.selectedAccount === 'cash') {
-        // 現金の場合：時系列で残高を計算
+        return 'cash'
+      } else {
+        return `bank-${this.selectedAccount}`
+      }
+    },
+    
+    getPreviousDate(dateString) {
+      const date = new Date(dateString)
+      date.setDate(date.getDate() - 1)
+      return date.toISOString().split('T')[0]
+    },
+    
+
+    
+    getSameDayTransactions(date) {
+      return this.filteredTransactions.filter(t => this.getUpdateDate(t) === date)
+    },
+    
+    async getDailyBalanceAsync(date, accountId) {
+      const balancesForAccount = this.dailyBalancesCache.filter(b => b.accountId === accountId && b.date <= date)
+      if (balancesForAccount.length > 0) {
+        balancesForAccount.sort((a, b) => b.date.localeCompare(a.date))
+        return balancesForAccount[0].balance
+      }
+      return this.getDefaultBalance(accountId)
+    },
+    
+    getDefaultBalance(accountId) {
+      if (accountId === 'cash') {
+        return this.initialBalance
+      } else {
+        // 銀行口座の場合は0から開始
+        return 0
+      }
+    },
+    
+    isLastTransactionOfDay(transaction, sameDayTransactions) {
+      const sortedTransactions = [...sameDayTransactions]
+        .sort((a, b) => {
+          const aTime = new Date(a.createdAt || a.timestamp || `${a.date}T00:00:00`)
+          const bTime = new Date(b.createdAt || b.timestamp || `${b.date}T00:00:00`)
+          return aTime - bTime
+        })
+      
+      const lastTransaction = sortedTransactions[sortedTransactions.length - 1]
+      const targetId = transaction.transactionId || transaction.id
+      const lastId = lastTransaction?.transactionId || lastTransaction?.id
+      return targetId === lastId
+    },
+    
+    setBalanceMismatch(date, calculated, daily) {
+      this.balanceMismatches = this.balanceMismatches || {}
+      this.balanceMismatches[date] = {
+        calculated,
+        daily,
+        accountId: this.getAccountIdForDailyBalance()
+      }
+    },
+    
+    calculateBalanceAfterFallback(transaction) {
+      // 従来の計算方式（フォールバック用）
+      if (this.selectedAccount === 'cash') {
+        let balance = this.initialBalance
         const transactionDate = new Date(transaction.createdAt || transaction.timestamp || transaction.date)
         
-        let balance = this.initialBalance
-        
-        // 対象取引より古い取引を時系列順で処理
         const olderTransactions = this.filteredTransactions
           .filter(t => {
             const tDate = new Date(t.createdAt || t.timestamp || t.date)
@@ -205,7 +360,6 @@ export default {
             return aDate - bDate
           })
         
-        // 対象取引まで順次計算
         for (const t of olderTransactions) {
           if (t.type === 'income') {
             balance += t.amount
@@ -213,7 +367,6 @@ export default {
             balance -= t.amount
           }
           
-          // 対象取引に到達したら残高を返す
           if (t.transactionId === transaction.transactionId || t.id === transaction.id) {
             return balance
           }
@@ -221,14 +374,13 @@ export default {
         
         return balance
       } else {
-        // 銀行口座の場合：現在の残高から逆算
+        // 銀行口座の場合は現在の残高から逆算
         const account = this.bankAccounts.find(acc => acc.accountId === this.selectedAccount)
         if (!account) return 0
         
         let balance = account.balance
         const transactionDate = new Date(transaction.createdAt || transaction.timestamp || transaction.date)
         
-        // 対象取引より新しい取引を逆算で引く
         const newerTransactions = this.filteredTransactions
           .filter(t => {
             const tDate = new Date(t.createdAt || t.timestamp || t.date)
@@ -237,10 +389,9 @@ export default {
           .sort((a, b) => {
             const aDate = new Date(a.createdAt || a.timestamp || a.date)
             const bDate = new Date(b.createdAt || b.timestamp || b.date)
-            return bDate - aDate // 新しい順
+            return bDate - aDate
           })
         
-        // 新しい取引から逆算で引く
         for (const t of newerTransactions) {
           if (t.type === 'income') {
             balance -= t.amount
@@ -250,6 +401,65 @@ export default {
         }
         
         return balance
+      }
+    },
+    
+    getBalanceResult(transaction) {
+      const key = transaction.transactionId || transaction.id
+      if (this.balanceCache[key]) {
+        return this.balanceCache[key]
+      }
+      return { amount: this.calculateBalanceAfterFallback(transaction), mismatch: false }
+    },
+    
+    async preloadBalances() {
+      const accountId = this.getAccountIdForDailyBalance()
+      
+      if (this.filteredTransactions.length === 0) {
+        this.dailyBalancesCache = []
+        return
+      }
+      
+      const dates = this.filteredTransactions.map(t => t.date).sort()
+      const startDate = dates[0]
+      const endDate = dates[dates.length - 1]
+      
+      try {
+        const response = await ApiService.getAccountDailyBalances(accountId, startDate, endDate)
+        this.dailyBalancesCache = response.balances || []
+      } catch (error) {
+        console.error('日次残高取得エラー:', error)
+        this.dailyBalancesCache = []
+      }
+      
+      for (const transaction of this.filteredTransactions) {
+        const result = await this.calculateBalanceAfter(transaction)
+        const key = transaction.transactionId || transaction.id
+        this.balanceCache[key] = result
+      }
+    },
+    
+    goToDailyBalanceManagement() {
+      this.$router.push('/daily-balances')
+    },
+    
+    getUpdateDate(transaction) {
+      if (transaction.accountType === 'cash') {
+        return transaction.date
+      }
+      return transaction.withdrawalDate || transaction.date
+    },
+    
+    getTransactionAmount(transaction) {
+      if (transaction.accountType === 'credit' && transaction.type === 'expense') {
+        // クレジットカードの引落は銀行口座からの支出
+        return -transaction.amount
+      }
+      
+      if (transaction.type === 'income') {
+        return transaction.amount
+      } else {
+        return -transaction.amount
       }
     }
   }
@@ -359,9 +569,27 @@ export default {
   margin-bottom: 0.25rem;
 }
 
+.transaction-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
 .transaction-date {
   color: #999;
   font-size: 0.8rem;
+}
+
+.withdrawal-date {
+  color: #e67e22;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.credit-indicator {
+  color: #9b59b6;
+  font-size: 0.8rem;
+  font-weight: normal;
 }
 
 .transaction-amounts {
@@ -388,5 +616,49 @@ export default {
   font-size: 0.9rem;
   color: #666;
   font-weight: normal;
+}
+
+.balance-after.balance-mismatch {
+  color: #e74c3c !important;
+  font-weight: bold;
+}
+
+.mismatch-indicator {
+  color: #e74c3c;
+  font-weight: bold;
+  margin-left: 0.25rem;
+}
+
+.mismatch-notice {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+}
+
+.mismatch-notice h4 {
+  margin: 0 0 1rem 0;
+  color: #856404;
+}
+
+.mismatch-notice p {
+  margin: 0.5rem 0;
+  color: #856404;
+}
+
+.btn-warning {
+  background-color: #f39c12;
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  margin-top: 1rem;
+}
+
+.btn-warning:hover {
+  background-color: #e67e22;
 }
 </style>
