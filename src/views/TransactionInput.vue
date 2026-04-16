@@ -2,6 +2,29 @@
   <div class="transaction-input">
     <h2>{{ isEditMode ? '取引編集' : '取引入力' }}</h2>
     <div class="input-form">
+      <!-- テンプレートエリア（新規入力時のみ表示） -->
+      <div v-if="!isEditMode" class="form-group template-area">
+        <div class="template-row">
+          <label class="template-check-label">
+            <input type="checkbox" v-model="useTemplate" />
+            取引テンプレート
+          </label>
+          <template v-if="useTemplate">
+            <select v-model="selectedTemplateId" @change="applyTemplate" class="form-select template-select">
+              <option value="">テンプレートを選択してください</option>
+              <option
+                v-for="tmpl in templates"
+                :key="tmpl.templateId"
+                :value="tmpl.templateId"
+              >
+                {{ tmpl.templateName }}
+              </option>
+            </select>
+            <button @click="deleteTemplate" class="btn-delete-template" :disabled="!selectedTemplateId">削除</button>
+          </template>
+        </div>
+      </div>
+
       <div class="form-group">
         <label>取引種別</label>
         <div class="radio-group">
@@ -137,6 +160,18 @@
       <button @click="submitTransaction" class="btn-primary" :disabled="loading">
         {{ loading ? '保存中...' : (isEditMode ? '取引を更新' : '取引を追加') }}
       </button>
+
+      <!-- テンプレート保存エリア（新規入力時のみ表示） -->
+      <div v-if="!isEditMode" class="template-save-area">
+        <input
+          v-model="templateName"
+          type="text"
+          placeholder="取引テンプレート名"
+          class="form-input template-name-input"
+        />
+        <button @click="saveTemplate" class="btn-save-template" :disabled="loading || !templateName.trim()">テンプレート保存</button>
+      </div>
+
       <div v-if="message" class="message">{{ message }}</div>
     </div>
   </div>
@@ -170,7 +205,12 @@ export default {
       creditCards: [],
       selectedCategory: null,
       isEditMode: false,
-      transactionId: null
+      transactionId: null,
+      // テンプレート関連
+      useTemplate: false,
+      templates: [],
+      selectedTemplateId: '',
+      templateName: ''
     }
   },
   async mounted() {
@@ -183,7 +223,8 @@ export default {
     await Promise.all([
       this.loadCategories(),
       this.loadBankAccounts(),
-      this.loadCreditCards()
+      this.loadCreditCards(),
+      this.loadTemplates()
     ])
     
     if (this.isEditMode) {
@@ -207,6 +248,82 @@ export default {
     }
   },
   methods: {
+    async loadTemplates() {
+      try {
+        const response = await ApiService.getTransactionTemplates()
+        this.templates = response.templates || []
+      } catch (error) {
+        console.error('取引テンプレートの取得に失敗:', error)
+      }
+    },
+
+    async applyTemplate() {
+      if (!this.selectedTemplateId) return
+      const tmpl = this.templates.find(t => t.templateId === this.selectedTemplateId)
+      if (!tmpl) return
+
+      this.transactionType = tmpl.type
+      this.amount = tmpl.amount
+      this.category = tmpl.category
+      this.memo = tmpl.memo || ''
+      this.selectedAccountId = tmpl.accountId || 'cash'
+      this.onCategoryChange()
+      this.subcategory = tmpl.subcategory || ''
+      await this.updateWithdrawalDate()
+    },
+
+    async saveTemplate() {
+      if (!this.templateName.trim()) return
+      if (!confirm(`取引テンプレート「${this.templateName.trim()}」を保存しますか？`)) return
+
+      try {
+        this.loading = true
+        await ApiService.saveTransactionTemplate({
+          templateName: this.templateName.trim(),
+          type: this.transactionType,
+          amount: this.amount,
+          category: this.category,
+          subcategory: this.subcategory,
+          memo: this.memo,
+          accountType: this.getAccountType(),
+          accountId: this.selectedAccountId === 'cash' ? null : this.selectedAccountId
+        })
+        this.message = `取引テンプレート「${this.templateName.trim()}」を保存しました`
+        this.templateName = ''
+        await this.loadTemplates()
+      } catch (error) {
+        this.message = error.message?.includes('409') || error.message?.includes('既に存在')
+          ? `取引テンプレート「${this.templateName.trim()}」は既に存在します`
+          : '取引テンプレートの保存に失敗しました'
+        console.error('テンプレート保存エラー:', error)
+      } finally {
+        this.loading = false
+        setTimeout(() => { this.message = '' }, 3000)
+      }
+    },
+
+    async deleteTemplate() {
+      if (!this.selectedTemplateId) return
+      const tmpl = this.templates.find(t => t.templateId === this.selectedTemplateId)
+      if (!tmpl) return
+
+      if (!confirm(`取引テンプレート「${tmpl.templateName}」を削除しますか？`)) return
+
+      try {
+        this.loading = true
+        await ApiService.deleteTransactionTemplate(this.selectedTemplateId)
+        this.message = `取引テンプレート「${tmpl.templateName}」を削除しました`
+        this.selectedTemplateId = ''
+        await this.loadTemplates()
+      } catch (error) {
+        this.message = '取引テンプレートの削除に失敗しました'
+        console.error('テンプレート削除エラー:', error)
+      } finally {
+        this.loading = false
+        setTimeout(() => { this.message = '' }, 3000)
+      }
+    },
+
     async loadCategories() {
       try {
         const response = await ApiService.getCategories()
@@ -478,6 +595,8 @@ export default {
       this.selectedAccountId = 'cash'
       this.withdrawalDate = new Date().toISOString().split('T')[0]
       this.selectedCategory = null
+      this.useTemplate = false
+      this.selectedTemplateId = ''
     }
   }
 }
@@ -529,6 +648,78 @@ label {
 .form-select {
   background-color: white;
   cursor: pointer;
+}
+
+.template-area {
+  background-color: #f0f7ff;
+  padding: 0.75rem;
+  border-radius: 4px;
+  border: 1px solid #d0e8ff;
+}
+
+.template-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.template-check-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: bold;
+  color: #333;
+  white-space: nowrap;
+  margin-bottom: 0;
+}
+
+.template-select {
+  flex: 1;
+  min-width: 150px;
+}
+
+.btn-delete-template {
+  background-color: #e74c3c;
+  color: white;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.btn-delete-template:disabled {
+  background-color: #bdc3c7;
+  cursor: not-allowed;
+}
+
+.template-save-area {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  align-items: center;
+}
+
+.template-name-input {
+  flex: 1;
+}
+
+.btn-save-template {
+  background-color: #8e44ad;
+  color: white;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.btn-save-template:disabled {
+  background-color: #bdc3c7;
+  cursor: not-allowed;
 }
 
 .btn-primary {

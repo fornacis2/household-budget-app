@@ -19,6 +19,8 @@ Globals:
           Ref: CreditCardsTable
         DAILY_BALANCE_TABLE:
           Ref: DailyBalancesTable
+        TRANSACTION_TEMPLATES_TABLE:
+          Ref: TransactionTemplatesTable
   Api:
     Cors:
       AllowMethods: '''GET,POST,PUT,DELETE,OPTIONS'''
@@ -111,6 +113,48 @@ Resources:
       - AttributeName: date
         KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
+  TransactionTemplatesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: household-transaction-templates
+      AttributeDefinitions:
+      - AttributeName: userId
+        AttributeType: S
+      - AttributeName: templateId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: userId
+        KeyType: HASH
+      - AttributeName: templateId
+        KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+  TransactionTemplateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: TransactionTemplateFunction
+      Handler: transaction-template/index.handler
+      Events:
+        GetTransactionTemplates:
+          Type: Api
+          Properties:
+            Path: /transaction-templates
+            Method: get
+        CreateTransactionTemplate:
+          Type: Api
+          Properties:
+            Path: /transaction-templates
+            Method: post
+        DeleteTransactionTemplate:
+          Type: Api
+          Properties:
+            Path: /transaction-templates/{templateId}
+            Method: delete
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: TransactionTemplatesTable
+    Metadata:
+      SamResourceId: TransactionTemplateFunction
   UserFunction:
     Type: AWS::Serverless::Function
     Properties:

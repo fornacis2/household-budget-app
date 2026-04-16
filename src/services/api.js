@@ -225,6 +225,24 @@ class ApiService {
     return result
   }
 
+  // 取引テンプレート管理
+  async getTransactionTemplates() {
+    return this.request('/transaction-templates')
+  }
+
+  async saveTransactionTemplate(template) {
+    return this.request('/transaction-templates', {
+      method: 'POST',
+      body: template
+    })
+  }
+
+  async deleteTransactionTemplate(templateId) {
+    return this.request(`/transaction-templates/${templateId}`, {
+      method: 'DELETE'
+    })
+  }
+
   // 日次残高管理
   async getDailyBalances(date, startDate, endDate) {
     if (startDate && endDate) {
