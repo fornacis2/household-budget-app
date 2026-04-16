@@ -1,8 +1,6 @@
 <template>
   <div class="transaction-list-view">
     <h2>取引データ一覧</h2>
-    <p>デバッグ: 画面表示テスト</p>
-    <p>取引件数: {{ transactions.length }}</p>
     
     <!-- 検索条件 -->
     <div class="search-section">
