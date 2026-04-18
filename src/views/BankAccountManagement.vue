@@ -1,38 +1,38 @@
 <template>
   <div class="bank-account-management">
     <h2>銀行口座管理</h2>
-    
-    <!-- 口座一覧 -->
+
     <div class="accounts-section">
       <h3>登録済み口座</h3>
-      <div class="accounts-grid">
+      <div class="account-list">
         <div
-          v-for="account in bankAccounts"
+          v-for="(account, index) in bankAccounts"
           :key="account.accountId"
-          class="account-card"
+          class="account-item"
         >
-          <div class="account-header">
-            <h4>{{ account.bankName }}</h4>
-            <div class="account-actions">
-              <button @click="editAccount(account)" class="btn-edit">編集</button>
-              <button @click="deleteAccount(account.accountId)" class="btn-delete">削除</button>
-            </div>
+          <div class="sort-buttons">
+            <button @click="moveUp(index)" class="btn-sort" :disabled="index === 0">↑</button>
+            <button @click="moveDown(index)" class="btn-sort" :disabled="index === bankAccounts.length - 1">↓</button>
           </div>
-          <div class="account-balance">
-            残高: ¥{{ account.balance.toLocaleString() }}
+          <div class="account-name">{{ account.bankName }}</div>
+          <div class="account-balance">¥{{ account.balance.toLocaleString() }}</div>
+          <div class="account-actions">
+            <button @click="editAccount(account)" class="btn-edit">編集</button>
+            <button @click="deleteAccount(account.accountId)" class="btn-delete">削除</button>
           </div>
-
         </div>
       </div>
-      
-      <button @click="showAccountForm" class="btn-add">+ 新しい口座を追加</button>
+      <div class="section-footer">
+        <button @click="showAccountForm" class="btn-add">+ 新しい口座を追加</button>
+        <button @click="updateSortOrder" class="btn-update" :disabled="loading">順序を更新</button>
+      </div>
     </div>
 
-    <!-- 口座追加・編集フォーム -->
+    <!-- 口座追加・編集フォーム（モーダル） -->
     <div v-if="showForm" class="form-overlay">
       <div class="form-modal">
         <h3>{{ editingAccount ? '口座編集' : '口座追加' }}</h3>
-        
+
         <div class="form-group">
           <label>銀行名</label>
           <input
@@ -71,8 +71,6 @@
       </div>
     </div>
 
-
-
     <div v-if="message" class="message">{{ message }}</div>
   </div>
 </template>
@@ -86,14 +84,12 @@ export default {
     return {
       bankAccounts: [],
       showForm: false,
-
       editingAccount: null,
       formData: {
         bankName: '',
         initialBalance: 0,
         balance: 0
       },
-
       loading: false,
       message: ''
     }
@@ -114,26 +110,19 @@ export default {
         this.loading = false
       }
     },
-    
+
     showAccountForm() {
       this.editingAccount = null
-      this.formData = {
-        bankName: '',
-        initialBalance: 0,
-        balance: 0
-      }
+      this.formData = { bankName: '', initialBalance: 0, balance: 0 }
       this.showForm = true
     },
-    
+
     editAccount(account) {
       this.editingAccount = account
-      this.formData = {
-        bankName: account.bankName,
-        balance: account.balance
-      }
+      this.formData = { bankName: account.bankName, balance: account.balance }
       this.showForm = true
     },
-    
+
     async saveAccount() {
       if (!this.formData.bankName.trim()) {
         this.message = '銀行名を入力してください'
@@ -142,19 +131,19 @@ export default {
 
       try {
         this.loading = true
-        
+
         if (this.editingAccount) {
           await ApiService.updateBankAccount(this.editingAccount.accountId, {
             bankName: this.formData.bankName,
             balance: this.formData.balance
           })
-          this.message = '口座を更新しました。日次残高管理画面で再計算を実行してください。'
+          this.message = '口座を更新しました'
         } else {
           await ApiService.createBankAccount({
             bankName: this.formData.bankName,
             initialBalance: this.formData.initialBalance
           })
-          this.message = '口座を追加しました。日次残高管理画面で再計算を実行してください。'
+          this.message = '口座を追加しました'
         }
 
         this.showForm = false
@@ -164,16 +153,12 @@ export default {
         this.message = '口座の保存に失敗しました'
       } finally {
         this.loading = false
-        setTimeout(() => {
-          this.message = ''
-        }, 3000)
+        setTimeout(() => { this.message = '' }, 3000)
       }
     },
-    
+
     async deleteAccount(accountId) {
-      if (!confirm('この口座を削除しますか？')) {
-        return
-      }
+      if (!confirm('この口座を削除しますか？')) return
 
       try {
         this.loading = true
@@ -185,15 +170,49 @@ export default {
         this.message = '口座の削除に失敗しました'
       } finally {
         this.loading = false
-        setTimeout(() => {
-          this.message = ''
-        }, 3000)
+        setTimeout(() => { this.message = '' }, 3000)
       }
     },
-    
+
     cancelForm() {
       this.showForm = false
       this.editingAccount = null
+    },
+
+    moveUp(index) {
+      if (index === 0) return
+      const tmp = this.bankAccounts[index - 1]
+      this.bankAccounts[index - 1] = this.bankAccounts[index]
+      this.bankAccounts[index] = tmp
+    },
+
+    moveDown(index) {
+      if (index === this.bankAccounts.length - 1) return
+      const tmp = this.bankAccounts[index + 1]
+      this.bankAccounts[index + 1] = this.bankAccounts[index]
+      this.bankAccounts[index] = tmp
+    },
+
+    async updateSortOrder() {
+      try {
+        this.loading = true
+        await Promise.all(
+          this.bankAccounts.map((account, index) =>
+            ApiService.updateBankAccount(account.accountId, {
+              bankName: account.bankName,
+              balance: account.balance,
+              sortOrder: index + 1
+            })
+          )
+        )
+        this.message = '順序を更新しました'
+      } catch (error) {
+        console.error('順序の更新に失敗:', error)
+        this.message = '順序の更新に失敗しました'
+      } finally {
+        this.loading = false
+        setTimeout(() => { this.message = '' }, 3000)
+      }
     }
   }
 }
@@ -214,30 +233,57 @@ export default {
   border-bottom: 2px solid #ecf0f1;
 }
 
-.accounts-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.account-card {
-  background: #f8f9fa;
-  padding: 1.5rem;
-  border-radius: 8px;
-  border-left: 4px solid #3498db;
-}
-
-.account-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.account-list {
   margin-bottom: 1rem;
 }
 
-.account-header h4 {
-  margin: 0;
+.account-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #f8f9fa;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+  border-radius: 4px;
+  border-left: 4px solid #3498db;
+}
+
+.sort-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.btn-sort {
+  padding: 0.1rem 0.3rem;
+  border: 1px solid #bdc3c7;
+  border-radius: 3px;
+  background-color: #ecf0f1;
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.btn-sort:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.btn-sort:hover:not(:disabled) {
+  background-color: #bdc3c7;
+}
+
+.account-name {
+  flex: 1;
+  font-weight: bold;
   color: #2c3e50;
+}
+
+.account-balance {
+  font-weight: bold;
+  color: #27ae60;
+  min-width: 120px;
+  text-align: right;
 }
 
 .account-actions {
@@ -263,46 +309,35 @@ export default {
   color: white;
 }
 
-.account-balance {
-  font-size: 1.2rem;
-  font-weight: bold;
-  color: #27ae60;
-  margin-bottom: 1rem;
-}
-
-.transfer-actions {
+.section-footer {
   display: flex;
   gap: 0.5rem;
-}
-
-.btn-deposit, .btn-withdraw {
-  flex: 1;
-  padding: 0.5rem;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: bold;
-}
-
-.btn-deposit {
-  background-color: #27ae60;
-  color: white;
-}
-
-.btn-withdraw {
-  background-color: #e67e22;
-  color: white;
+  margin-top: 0.5rem;
 }
 
 .btn-add {
-  background-color: #3498db;
+  background-color: #27ae60;
   color: white;
-  padding: 1rem 2rem;
+  padding: 0.5rem 1rem;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  width: 100%;
-  font-size: 1rem;
+  flex: 1;
+}
+
+.btn-update {
+  background-color: #3498db;
+  color: white;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 1;
+}
+
+.btn-update:disabled {
+  background-color: #bdc3c7;
+  cursor: not-allowed;
 }
 
 .form-overlay {
@@ -324,14 +359,6 @@ export default {
   border-radius: 8px;
   width: 90%;
   max-width: 500px;
-}
-
-.account-info {
-  background-color: #ecf0f1;
-  padding: 0.75rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
-  color: #2c3e50;
 }
 
 .form-group {

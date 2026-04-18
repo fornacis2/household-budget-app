@@ -51,19 +51,21 @@ async function getCreditCards(headers) {
   const params = {
     TableName: TABLE_NAME,
     KeyConditionExpression: 'userId = :userId',
-    ExpressionAttributeValues: {
-      ':userId': userId
-    }
+    ExpressionAttributeValues: { ':userId': userId }
   };
 
   const result = await dynamodb.query(params).promise();
-  
+  const creditCards = (result.Items || []).sort((a, b) => {
+    const aOrder = a.sortOrder !== undefined ? a.sortOrder : Number.MAX_SAFE_INTEGER
+    const bOrder = b.sortOrder !== undefined ? b.sortOrder : Number.MAX_SAFE_INTEGER
+    if (aOrder !== bOrder) return aOrder - bOrder
+    return (a.createdAt || '').localeCompare(b.createdAt || '')
+  })
+
   return {
     statusCode: 200,
     headers,
-    body: JSON.stringify({
-      creditCards: result.Items || []
-    })
+    body: JSON.stringify({ creditCards })
   };
 }
 
@@ -71,7 +73,7 @@ async function createCreditCard(event, headers) {
   const body = JSON.parse(event.body);
   const { cardName, withdrawalAccountId, closingDay, withdrawalMonth, withdrawalDay } = body;
 
-  if (!cardName || !withdrawalAccountId || !closingDay || !withdrawalMonth || !withdrawalDay) {
+  if (!cardName || !withdrawalAccountId || !closingDay || withdrawalMonth === undefined || !withdrawalDay) {
     return {
       statusCode: 400,
       headers,
@@ -80,6 +82,17 @@ async function createCreditCard(event, headers) {
   }
 
   const userId = 'default-user';
+
+  // 既存カードの最大 sortOrder を取得して +1
+  const existingResult = await dynamodb.query({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: 'userId = :userId',
+    ExpressionAttributeValues: { ':userId': userId }
+  }).promise();
+  const maxSortOrder = (existingResult.Items || []).reduce((max, item) => {
+    return item.sortOrder !== undefined ? Math.max(max, item.sortOrder) : max
+  }, 0);
+
   const cardId = uuidv4();
   const creditCard = {
     userId,
@@ -89,6 +102,7 @@ async function createCreditCard(event, headers) {
     closingDay: parseInt(closingDay),
     withdrawalMonth,
     withdrawalDay: parseInt(withdrawalDay),
+    sortOrder: maxSortOrder + 1,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -142,7 +156,7 @@ async function updateCreditCard(event, cardId, headers) {
     expressionAttributeValues[':closingDay'] = parseInt(closingDay);
   }
 
-  if (withdrawalMonth) {
+  if (withdrawalMonth !== undefined) {
     updateExpression.push('withdrawalMonth = :withdrawalMonth');
     expressionAttributeValues[':withdrawalMonth'] = withdrawalMonth;
   }
@@ -150,6 +164,11 @@ async function updateCreditCard(event, cardId, headers) {
   if (withdrawalDay) {
     updateExpression.push('withdrawalDay = :withdrawalDay');
     expressionAttributeValues[':withdrawalDay'] = parseInt(withdrawalDay);
+  }
+
+  if (body.sortOrder !== undefined) {
+    updateExpression.push('sortOrder = :sortOrder');
+    expressionAttributeValues[':sortOrder'] = body.sortOrder;
   }
 
   updateExpression.push('updatedAt = :updatedAt');

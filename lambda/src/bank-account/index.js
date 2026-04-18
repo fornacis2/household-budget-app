@@ -46,12 +46,17 @@ exports.handler = async (event) => {
         }
       }).promise()
 
+      const bankAccounts = (result.Items || []).sort((a, b) => {
+        const aOrder = a.sortOrder !== undefined ? a.sortOrder : Number.MAX_SAFE_INTEGER
+        const bOrder = b.sortOrder !== undefined ? b.sortOrder : Number.MAX_SAFE_INTEGER
+        if (aOrder !== bOrder) return aOrder - bOrder
+        return (a.createdAt || '').localeCompare(b.createdAt || '')
+      })
+
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({
-          bankAccounts: result.Items || []
-        })
+        body: JSON.stringify({ bankAccounts })
       }
     }
 
@@ -67,29 +72,46 @@ exports.handler = async (event) => {
     if (httpMethod === 'PUT') {
       // 銀行口座更新
       const { accountId } = pathParameters
-      const { bankName, balance } = JSON.parse(event.body)
+      const body = JSON.parse(event.body)
+      const { bankName, balance, sortOrder } = body
+
+      const updateExpression = ['updatedAt = :updatedAt']
+      const expressionAttributeValues = {
+        ':updatedAt': new Date().toISOString()
+      }
+
+      if (bankName !== undefined) {
+        updateExpression.push('bankName = :bankName')
+        expressionAttributeValues[':bankName'] = bankName
+      }
+      if (balance !== undefined) {
+        updateExpression.push('balance = :balance')
+        expressionAttributeValues[':balance'] = balance
+      }
+      if (sortOrder !== undefined) {
+        updateExpression.push('sortOrder = :sortOrder')
+        expressionAttributeValues[':sortOrder'] = sortOrder
+      }
 
       await dynamodb.update({
         TableName: BANK_ACCOUNTS_TABLE,
         Key: { userId, accountId },
-        UpdateExpression: 'SET bankName = :bankName, balance = :balance, updatedAt = :updatedAt',
-        ExpressionAttributeValues: {
-          ':bankName': bankName,
-          ':balance': balance,
-          ':updatedAt': new Date().toISOString()
-        }
+        UpdateExpression: 'SET ' + updateExpression.join(', '),
+        ExpressionAttributeValues: expressionAttributeValues
       }).promise()
 
-      // 残高変更時は最古取引日から再計算
-      const bankAccountId = `bank-${accountId}`
-      const startDate = await getOldestTransactionDate(bankAccountId)
-      const account = {
-        accountId: bankAccountId,
-        accountType: 'bank',
-        originalId: accountId,
-        initialBalance: balance
+      // balance変更時のみ再計算（sortOrderのみ更新の場合はスキップ）
+      if (balance !== undefined) {
+        const bankAccountId = `bank-${accountId}`
+        const startDate = await getOldestTransactionDate(bankAccountId)
+        const account = {
+          accountId: bankAccountId,
+          accountType: 'bank',
+          originalId: accountId,
+          initialBalance: balance
+        }
+        await recalculateFromDate(account, startDate)
       }
-      await recalculateFromDate(account, startDate)
 
       return {
         statusCode: 200,
@@ -139,11 +161,22 @@ async function createBankAccount(event, userId, headers) {
   const { bankName, initialBalance } = JSON.parse(event.body)
   const accountId = uuidv4()
 
+  // 既存口座の最大 sortOrder を取得して +1
+  const existingResult = await dynamodb.query({
+    TableName: BANK_ACCOUNTS_TABLE,
+    KeyConditionExpression: 'userId = :userId',
+    ExpressionAttributeValues: { ':userId': userId }
+  }).promise()
+  const maxSortOrder = (existingResult.Items || []).reduce((max, item) => {
+    return item.sortOrder !== undefined ? Math.max(max, item.sortOrder) : max
+  }, 0)
+
   const bankAccount = {
     userId,
     accountId,
     bankName,
     balance: initialBalance || 0,
+    sortOrder: maxSortOrder + 1,
     createdAt: new Date().toISOString()
   }
 
