@@ -33,6 +33,13 @@ function getUpdateDate(transaction) {
 // 日付取得
 // ────────────────────────────────────────────
 
+// JST基準の本日日付を返す
+function getTodayJST() {
+  const now = new Date()
+  now.setHours(now.getHours() + 9)
+  return now.toISOString().split('T')[0]
+}
+
 // 取引テーブルから最新取引日を取得（なければ本日）
 async function getLatestTransactionDate() {
   try {
@@ -43,11 +50,11 @@ async function getLatestTransactionDate() {
     }).promise()
 
     const dates = (result.Items || []).map(i => i.date).filter(Boolean)
-    if (dates.length === 0) return new Date().toISOString().split('T')[0]
+    if (dates.length === 0) return getTodayJST()
     return dates.sort().reverse()[0]
   } catch (error) {
     console.error('Error getting latest transaction date:', error)
-    return new Date().toISOString().split('T')[0]
+    return getTodayJST()
   }
 }
 
@@ -79,11 +86,11 @@ async function getOldestTransactionDate(accountId) {
 
     const result = await dynamodb.query(params).promise()
     const dates = (result.Items || []).map(i => i.date).filter(Boolean)
-    if (dates.length === 0) return new Date().toISOString().split('T')[0]
+    if (dates.length === 0) return getTodayJST()
     return dates.sort()[0]
   } catch (error) {
     console.error('Error getting oldest transaction date:', error)
-    return new Date().toISOString().split('T')[0]
+    return getTodayJST()
   }
 }
 
@@ -279,7 +286,10 @@ async function updateDailyBalancesWithWithdrawal(transaction, operation) {
 
 // 開始日以降の全期間を再計算（終了日は最新取引日を自動取得）
 async function recalculateFromDate(account, startDate) {
-  const endDate = await getLatestTransactionDate()
+  let endDate = await getLatestTransactionDate()
+
+  // startDate > endDate の場合は endDate を startDate に合わせる（BETWEEN句エラー防止）
+  if (startDate > endDate) endDate = startDate
 
   // 取引データ取得
   const transactions = await getAccountTransactionsForRecalc(account, startDate, endDate)

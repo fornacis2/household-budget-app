@@ -32,6 +32,9 @@
                 {{ category.name }}
               </option>
             </optgroup>
+            <optgroup label="口座振替">
+              <option value="transfer-all">口座振替（全て）</option>
+            </optgroup>
           </select>
         </div>
       </div>
@@ -66,14 +69,13 @@
               <td>{{ formatDate(transaction.date) }}</td>
               <td>{{ transaction.category }}</td>
               <td>{{ transaction.subcategory || '-' }}</td>
-              <td class="amount" :class="transaction.type">
+              <td class="amount" :class="getAmountClass(transaction)">
                 {{ transaction.type === 'income' ? '+' : '-' }}¥{{ transaction.amount.toLocaleString() }}
               </td>
-              <td class="type" :class="transaction.type">
-                {{ transaction.type === 'income' ? '収入' : '支出' }}
+              <td class="type" :class="getAmountClass(transaction)">
+                {{ getTypeLabel(transaction) }}
               </td>
               <td>{{ getAccountName(transaction) }}</td>
-              <td>{{ transaction.memo || '-' }}</td>
               <td>
                 <button @click="editTransaction(transaction)" class="btn-edit">
                   編集
@@ -122,9 +124,11 @@ export default {
       // カテゴリフィルタ
       if (this.selectedCategory !== 'all') {
         if (this.selectedCategory === 'income-all') {
-          filtered = filtered.filter(t => t.type === 'income')
+          filtered = filtered.filter(t => t.type === 'income' && t.category !== '口座振替')
         } else if (this.selectedCategory === 'expense-all') {
-          filtered = filtered.filter(t => t.type === 'expense')
+          filtered = filtered.filter(t => t.type === 'expense' && t.category !== '口座振替')
+        } else if (this.selectedCategory === 'transfer-all') {
+          filtered = filtered.filter(t => t.category === '口座振替')
         } else if (this.selectedCategory.startsWith('income-')) {
           const categoryName = this.selectedCategory.replace('income-', '')
           filtered = filtered.filter(t => t.type === 'income' && t.category === categoryName)
@@ -138,12 +142,20 @@ export default {
     },
     
     sortedTransactions() {
-      return [...this.filteredTransactions].sort((a, b) => {
+      // 口座振替は transferGroupId でグループ化し振替元（expense）で1件のみ表示
+      const seen = new Set()
+      const deduped = this.filteredTransactions.filter(t => {
+        if (t.category !== '口座振替') return true
+        if (!t.transferGroupId) return t.type === 'expense'
+        if (t.type !== 'expense') return false  // incomeは常に除外
+        if (seen.has(t.transferGroupId)) return false
+        seen.add(t.transferGroupId)
+        return true
+      })
+      return deduped.sort((a, b) => {
         const dateA = new Date(a.date)
         const dateB = new Date(b.date)
-        if (dateA.getTime() !== dateB.getTime()) {
-          return dateB - dateA
-        }
+        if (dateA.getTime() !== dateB.getTime()) return dateB - dateA
         return new Date(b.createdAt || b.timestamp) - new Date(a.createdAt || a.timestamp)
       })
     }
@@ -171,7 +183,10 @@ export default {
       }
       
       // カテゴリ指定
-      if (query.category && query.type) {
+      if (query.type === 'transfer') {
+        this.selectedCategory = 'transfer-all'
+        this.selectedType = 'transfer'
+      } else if (query.category && query.type) {
         this.selectedCategory = `${query.type}-${query.category}`
         this.selectedType = query.type
       } else if (query.type) {
@@ -228,30 +243,52 @@ export default {
     },
     
     editTransaction(transaction) {
-      this.$router.push({
-        path: `/input/${transaction.transactionId}`
-      })
+      if (transaction.category === '口座振替' && transaction.transferGroupId) {
+        this.$router.push(`/account-transfer/${transaction.transferGroupId}`)
+      } else {
+        this.$router.push(`/input/${transaction.transactionId}`)
+      }
     },
     
     async deleteTransaction(transaction) {
-      if (!confirm(`この取引を削除しますか？\n\n日付: ${this.formatDate(transaction.date)}\nカテゴリ: ${transaction.category}\n金額: ${transaction.amount.toLocaleString()}円`)) {
-        return
-      }
-      
+      const isTransfer = transaction.category === '口座振替'
+      const confirmMsg = isTransfer
+        ? `この口座振替を削除しますか？（振替元・振替先の2件が削除されます）\n\n日付: ${this.formatDate(transaction.date)}\n金額: ${transaction.amount.toLocaleString()}円`
+        : `この取引を削除しますか？\n\n日付: ${this.formatDate(transaction.date)}\nカテゴリ: ${transaction.category}\n金額: ${transaction.amount.toLocaleString()}円`
+
+      if (!confirm(confirmMsg)) return
+
       try {
         this.loading = true
-        await ApiService.deleteTransaction(transaction.transactionId)
+        if (isTransfer && transaction.transferGroupId) {
+          const paired = this.transactions.filter(
+            t => t.transferGroupId === transaction.transferGroupId
+          )
+          for (const t of paired) {
+            await ApiService.deleteTransaction(t.transactionId)
+          }
+        } else {
+          await ApiService.deleteTransaction(transaction.transactionId)
+        }
         this.message = '取引を削除しました'
-        await this.searchTransactions() // 一覧を再読み込み
+        await this.searchTransactions()
       } catch (error) {
         console.error('取引削除に失敗:', error)
         this.message = '取引削除に失敗しました'
       } finally {
         this.loading = false
-        setTimeout(() => {
-          this.message = ''
-        }, 3000)
+        setTimeout(() => { this.message = '' }, 3000)
       }
+    },
+
+    getTypeLabel(transaction) {
+      if (transaction.category === '口座振替') return '口座振替'
+      return transaction.type === 'income' ? '収入' : '支出'
+    },
+
+    getAmountClass(transaction) {
+      if (transaction.category === '口座振替') return 'transfer'
+      return transaction.type
     },
     
     formatDate(dateString) {
@@ -260,12 +297,24 @@ export default {
     },
     
     getAccountName(transaction) {
-      if (!transaction.accountType || transaction.accountType === 'cash') {
-        return '現金'
-      } else if (transaction.accountType === 'bank') {
+      if (transaction.category === '口座振替' && transaction.transferGroupId) {
+        const toTx = this.transactions.find(
+          t => t.transferGroupId === transaction.transferGroupId && t.type === 'income'
+        )
+        const fromName = this.getAccountLabel(transaction)
+        const toName = toTx ? this.getAccountLabel(toTx) : '?'
+        return `${fromName} → ${toName}`
+      }
+      return this.getAccountLabel(transaction)
+    },
+
+    getAccountLabel(transaction) {
+      if (!transaction.accountType || transaction.accountType === 'cash') return '現金'
+      if (transaction.accountType === 'bank') {
         const account = this.bankAccounts.find(acc => acc.accountId === transaction.accountId)
         return account ? account.bankName : '銀行口座'
-      } else if (transaction.accountType === 'credit') {
+      }
+      if (transaction.accountType === 'credit') {
         return 'クレジットカード'
       }
       return '-'
@@ -427,6 +476,10 @@ export default {
   color: #e74c3c;
 }
 
+.amount.transfer {
+  color: #8e44ad;
+}
+
 .type.income {
   color: #27ae60;
   font-weight: bold;
@@ -434,6 +487,11 @@ export default {
 
 .type.expense {
   color: #e74c3c;
+  font-weight: bold;
+}
+
+.type.transfer {
+  color: #8e44ad;
   font-weight: bold;
 }
 </style>

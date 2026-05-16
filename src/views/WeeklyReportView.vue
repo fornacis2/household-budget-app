@@ -111,6 +111,23 @@
             </tr>
           </template>
 
+          <!-- 口座振替セクション -->
+          <tr class="section-header transfer-section">
+            <td @click="toggleSection('transfer')" class="expandable">
+              <span class="expand-icon">{{ expandedSections.transfer ? '▼' : '▶' }}</span>
+              口座振替
+            </td>
+            <td v-for="(date, index) in dateColumns" :key="index" class="amount-cell transfer clickable" @click="navigateToTransactions('transfer', null, date)">
+              ¥{{ getTransferAmount(date).toLocaleString() }}
+            </td>
+            <td class="amount-cell transfer total">
+              ¥{{ getTransferWeekTotal().toLocaleString() }}
+            </td>
+            <td class="amount-cell transfer monthly">
+              ¥{{ getTransferMonthlyTotal().toLocaleString() }}
+            </td>
+          </tr>
+
           <!-- 残高セクション -->
           <tr class="section-header balance-section">
             <td @click="toggleSection('balance')" class="expandable">
@@ -183,6 +200,7 @@ export default {
       expandedSections: {
         income: true,
         expense: true,
+        transfer: true,
         balance: true
       },
       loading: false,
@@ -334,7 +352,7 @@ export default {
     
     getDateTotal(type, date) {
       return this.transactions
-        .filter(t => t.type === type && t.date === date)
+        .filter(t => t.type === type && t.date === date && t.category !== '口座振替')
         .reduce((sum, t) => sum + (t.amount || 0), 0)
     },
     
@@ -353,7 +371,8 @@ export default {
       return this.transactions
         .filter(t => {
           const tDate = new Date(t.date)
-          return t.type === type && 
+          return t.type === type &&
+                 t.category !== '口座振替' &&
                  tDate.getFullYear() === year && 
                  tDate.getMonth() + 1 === month
         })
@@ -421,20 +440,39 @@ export default {
       return balance ? '¥' + balance.balance.toLocaleString() : '-'
     },
     
+    getTransferAmount(date) {
+      return this.transactions
+        .filter(t => t.category === '口座振替' && t.type === 'expense' && t.date === date)
+        .reduce((sum, t) => sum + (t.amount || 0), 0)
+    },
+
+    getTransferWeekTotal() {
+      return this.dateColumns.reduce((total, date) => total + this.getTransferAmount(date), 0)
+    },
+
+    getTransferMonthlyTotal() {
+      const weekStartDate = new Date(this.selectedWeekStart)
+      const firstDayOfWeek = this.getWeekStart(weekStartDate)
+      const year = firstDayOfWeek.getFullYear()
+      const month = firstDayOfWeek.getMonth() + 1
+      return this.transactions
+        .filter(t => {
+          const tDate = new Date(t.date)
+          return t.category === '口座振替' && t.type === 'expense' &&
+                 tDate.getFullYear() === year && tDate.getMonth() + 1 === month
+        })
+        .reduce((sum, t) => sum + (t.amount || 0), 0)
+    },
+
     navigateToTransactions(type, category, date) {
-      const query = {
-        date: date,
-        type: type
+      const query = { date }
+      if (type === 'transfer') {
+        query.type = 'transfer'
+      } else {
+        query.type = type
+        if (category) query.category = category
       }
-      
-      if (category) {
-        query.category = category
-      }
-      
-      this.$router.push({
-        path: '/transactions',
-        query: query
-      })
+      this.$router.push({ path: '/transactions', query })
     }
   }
 }
@@ -588,6 +626,10 @@ export default {
   background-color: #e8f4fd;
 }
 
+.section-header.transfer-section {
+  background-color: #f3e8fd;
+}
+
 .expandable {
   cursor: pointer;
   text-align: left !important;
@@ -621,6 +663,10 @@ export default {
 
 .amount-cell.expense {
   color: #e74c3c;
+}
+
+.amount-cell.transfer {
+  color: #8e44ad;
 }
 
 .amount-cell.total {

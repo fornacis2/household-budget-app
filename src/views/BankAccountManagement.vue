@@ -196,15 +196,9 @@ export default {
     async updateSortOrder() {
       try {
         this.loading = true
-        await Promise.all(
-          this.bankAccounts.map((account, index) =>
-            ApiService.updateBankAccount(account.accountId, {
-              bankName: account.bankName,
-              balance: account.balance,
-              sortOrder: index + 1
-            })
-          )
-        )
+        for (let i = 0; i < this.bankAccounts.length; i++) {
+          await ApiService.updateBankAccount(this.bankAccounts[i].accountId, { sortOrder: i + 1 })
+        }
         this.message = '順序を更新しました'
       } catch (error) {
         console.error('順序の更新に失敗:', error)

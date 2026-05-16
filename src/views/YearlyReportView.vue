@@ -91,6 +91,19 @@
               </td>
             </tr>
           </template>
+          <!-- 口座振替セクション -->
+          <tr class="section-header transfer-section">
+            <td @click="toggleSection('transfer')" class="expandable">
+              <span class="expand-icon">{{ expandedSections.transfer ? '▼' : '▶' }}</span>
+              口座振替
+            </td>
+            <td v-for="(month, index) in dateColumns" :key="index" class="amount-cell transfer">
+              ¥{{ getTransferMonthAmount(month).toLocaleString() }}
+            </td>
+            <td class="amount-cell transfer total">
+              ¥{{ getTransferYearlyTotal().toLocaleString() }}
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -109,7 +122,8 @@ export default {
       categories: { income: [], expense: [] },
       expandedSections: {
         income: true,
-        expense: true
+        expense: true,
+        transfer: true
       },
       loading: false
     }
@@ -179,13 +193,13 @@ export default {
     
     getMonthTotal(type, month) {
       return this.transactions
-        .filter(t => t.type === type && t.date >= month.start && t.date <= month.end)
+        .filter(t => t.type === type && t.category !== '口座振替' && t.date >= month.start && t.date <= month.end)
         .reduce((sum, t) => sum + (t.amount || 0), 0)
     },
     
     getYearlyTotal(type) {
       return this.transactions
-        .filter(t => t.type === type)
+        .filter(t => t.type === type && t.category !== '口座振替')
         .reduce((sum, t) => sum + (t.amount || 0), 0)
     },
     
@@ -196,9 +210,16 @@ export default {
         .reduce((sum, t) => sum + (t.amount || 0), 0)
     },
     
-    getCategoryYearlyTotal(categoryName, type) {
+    getTransferMonthAmount(month) {
       return this.transactions
-        .filter(t => t.type === type && t.category === categoryName)
+        .filter(t => t.category === '口座振替' && t.type === 'expense' &&
+                     t.date >= month.start && t.date <= month.end)
+        .reduce((sum, t) => sum + (t.amount || 0), 0)
+    },
+
+    getTransferYearlyTotal() {
+      return this.transactions
+        .filter(t => t.category === '口座振替' && t.type === 'expense')
         .reduce((sum, t) => sum + (t.amount || 0), 0)
     }
   }
@@ -302,6 +323,10 @@ export default {
   background-color: #ffe8e8;
 }
 
+.section-header.transfer-section {
+  background-color: #f3e8fd;
+}
+
 .expandable {
   cursor: pointer;
   text-align: left !important;
@@ -335,6 +360,10 @@ export default {
 
 .amount-cell.expense {
   color: #e74c3c;
+}
+
+.amount-cell.transfer {
+  color: #8e44ad;
 }
 
 .amount-cell.total {

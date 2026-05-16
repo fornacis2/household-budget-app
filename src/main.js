@@ -7,6 +7,7 @@ import BalanceView from './views/BalanceView.vue'
 import CategoryManagement from './views/CategoryManagement.vue'
 import BankAccountManagement from './views/BankAccountManagement.vue'
 import BankTransferInput from './views/BankTransferInput.vue'
+import AccountTransferInput from './views/AccountTransferInput.vue'
 import CreditCardManagement from './views/CreditCardManagement.vue'
 import DailyBalanceManagement from './views/DailyBalanceManagement.vue'
 import WeeklyReportView from './views/WeeklyReportView.vue'
@@ -21,6 +22,7 @@ const routes = [
   { path: '/categories', component: CategoryManagement },
   { path: '/bank-accounts', component: BankAccountManagement },
   { path: '/bank-transfer', component: BankTransferInput },
+  { path: '/account-transfer/:transferGroupId?', component: AccountTransferInput },
   { path: '/credit-cards', component: CreditCardManagement },
   { path: '/daily-balances', component: DailyBalanceManagement },
   { path: '/reports/weekly', component: WeeklyReportView },

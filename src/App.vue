@@ -8,6 +8,7 @@
         <router-link to="/transactions" class="nav-orange">取引データ</router-link>
         <router-link to="/input" class="nav-blue">取引入力</router-link>
         <router-link to="/bank-transfer" class="nav-blue">預金・引出</router-link>
+        <router-link to="/account-transfer" class="nav-blue">口座振替</router-link>
         <router-link to="/categories" class="nav-green">カテゴリ管理</router-link>
         <router-link to="/bank-accounts" class="nav-green">銀行口座</router-link>
         <router-link to="/credit-cards" class="nav-green">クレジットカード</router-link>

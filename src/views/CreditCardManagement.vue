@@ -241,11 +241,9 @@ export default {
     async updateSortOrder() {
       try {
         this.loading = true
-        await Promise.all(
-          this.creditCards.map((card, index) =>
-            ApiService.updateCreditCard(card.cardId, { sortOrder: index + 1 })
-          )
-        )
+        for (let i = 0; i < this.creditCards.length; i++) {
+          await ApiService.updateCreditCard(this.creditCards[i].cardId, { sortOrder: i + 1 })
+        }
         this.message = '順序を更新しました'
       } catch (error) {
         console.error('順序の更新に失敗:', error)

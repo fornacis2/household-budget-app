@@ -259,15 +259,13 @@ export default {
       try {
         this.loading = true
         const list = this.categories[type]
-        await Promise.all(
-          list.map((category, index) =>
-            ApiService.updateCategory(category.categoryId, {
-              name: category.name,
-              subcategories: category.subcategories,
-              sortOrder: index + 1
-            })
-          )
-        )
+        for (let i = 0; i < list.length; i++) {
+          await ApiService.updateCategory(list[i].categoryId, {
+            name: list[i].name,
+            subcategories: list[i].subcategories,
+            sortOrder: i + 1
+          })
+        }
         this.message = '順序を更新しました'
       } catch (error) {
         console.error('順序の更新に失敗:', error)
