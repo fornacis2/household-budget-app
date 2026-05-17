@@ -24,6 +24,7 @@
             <span class="card-detail">引落: {{ getWithdrawalMonthText(card.withdrawalMonth) }}{{ card.withdrawalDay }}日</span>
           </div>
           <div class="card-actions">
+            <button @click="showEditForm(card)" class="btn-edit" :disabled="loading">編集</button>
             <button @click="deleteCard(card.cardId)" class="btn-delete" :disabled="loading">削除</button>
           </div>
         </div>
@@ -34,10 +35,10 @@
       </div>
     </div>
 
-    <!-- 登録フォーム（モーダル） -->
+    <!-- 登録・編集フォーム（モーダル） -->
     <div v-if="showForm" class="form-overlay">
       <div class="form-modal">
-        <h3>クレジットカードを追加</h3>
+        <h3>{{ editingCardId ? 'クレジットカードを編集' : 'クレジットカードを追加' }}</h3>
 
         <div class="form-group">
           <label>カード名</label>
@@ -90,8 +91,8 @@
         </div>
 
         <div class="form-actions">
-          <button @click="addCreditCard" class="btn-primary" :disabled="loading || !canAddCard">
-            {{ loading ? '登録中...' : 'カード登録' }}
+          <button @click="saveCard" class="btn-primary" :disabled="loading || !canAddCard">
+            {{ loading ? '保存中...' : (editingCardId ? '更新' : 'カード登録') }}
           </button>
           <button @click="cancelForm" class="btn-secondary">キャンセル</button>
         </div>
@@ -118,6 +119,7 @@ export default {
       },
       creditCards: [],
       bankAccounts: [],
+      editingCardId: null,
       showForm: false,
       loading: false,
       message: '',
@@ -170,37 +172,60 @@ export default {
     },
 
     showAddForm() {
+      this.editingCardId = null
       this.resetForm()
+      this.showForm = true
+    },
+
+    showEditForm(card) {
+      this.editingCardId = card.cardId
+      const reverseMonthMap = { 0: 'current', 1: 'next', 2: 'after_next' }
+      this.newCard = {
+        cardName: card.cardName,
+        withdrawalAccountId: card.withdrawalAccountId,
+        closingDay: card.closingDay,
+        withdrawalMonth: reverseMonthMap[card.withdrawalMonth],
+        withdrawalDay: card.withdrawalDay
+      }
       this.showForm = true
     },
 
     cancelForm() {
       this.showForm = false
+      this.editingCardId = null
       this.resetForm()
     },
 
-    async addCreditCard() {
+    async saveCard() {
       if (!this.canAddCard) {
         this.message = '全ての項目を入力してください'
         return
       }
 
+      const payload = {
+        cardName: this.newCard.cardName,
+        withdrawalAccountId: this.newCard.withdrawalAccountId,
+        closingDay: parseInt(this.newCard.closingDay),
+        withdrawalMonth: this.withdrawalMonthMap[this.newCard.withdrawalMonth],
+        withdrawalDay: parseInt(this.newCard.withdrawalDay)
+      }
+
       try {
         this.loading = true
-        await ApiService.addCreditCard({
-          cardName: this.newCard.cardName,
-          withdrawalAccountId: this.newCard.withdrawalAccountId,
-          closingDay: parseInt(this.newCard.closingDay),
-          withdrawalMonth: this.withdrawalMonthMap[this.newCard.withdrawalMonth],
-          withdrawalDay: parseInt(this.newCard.withdrawalDay)
-        })
-        this.message = 'クレジットカードを登録しました'
+        if (this.editingCardId) {
+          await ApiService.updateCreditCard(this.editingCardId, payload)
+          this.message = 'クレジットカードを更新しました'
+        } else {
+          await ApiService.addCreditCard(payload)
+          this.message = 'クレジットカードを登録しました'
+        }
         this.showForm = false
+        this.editingCardId = null
         this.resetForm()
         await this.loadCreditCards()
       } catch (error) {
-        console.error('クレジットカード登録に失敗:', error)
-        this.message = 'クレジットカード登録に失敗しました'
+        console.error('クレジットカード保存に失敗:', error)
+        this.message = 'クレジットカードの保存に失敗しました'
       } finally {
         this.loading = false
         setTimeout(() => { this.message = '' }, 3000)
@@ -353,6 +378,21 @@ export default {
 .card-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+.btn-edit {
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  background-color: #f39c12;
+  color: white;
+}
+
+.btn-edit:disabled {
+  background-color: #bdc3c7;
+  cursor: not-allowed;
 }
 
 .btn-delete {
